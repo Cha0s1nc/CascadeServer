@@ -1,0 +1,4 @@
+/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/publish/Jellyfin.Plugin.CascadeLyrics.dll
+/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/publish/Jellyfin.Plugin.CascadeLyrics.pdb
+/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/publish/Jellyfin.Plugin.CascadeLyrics.xml
+/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/publish/Jellyfin.Plugin.CascadeLyrics.deps.json

@@ -1,0 +1,20 @@
+[
+  {
+    "category": "Metadata",
+    "guid": "a8b9c0d1-e2f3-4a5b-6c7d-8e9f0a1b2c3d",
+    "name": "Cascade Lyrics",
+    "description": "Enhanced karaoke lyrics storage and retrieval for the Cascade music player. Stores word-level timed lyrics (.slrc) server-side so they are shared across all users on the server.",
+    "overview": "Store and retrieve enhanced karaoke lyrics (per-word timing) on your Jellyfin server via the Cascade music player's built-in lyrics editor.",
+    "owner": "Cha0s1nc",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "targetAbi": "10.10.0.0",
+        "sourceUrl": "https://github.com/Cha0s1nc/jellyfin-plugin-cascade-lyrics/releases/download/v1.0.0/Jellyfin.Plugin.CascadeLyrics_1.0.0.0.zip",
+        "checksum": "",
+        "timestamp": "2026-06-20T00:00:00Z",
+        "changelog": "Initial release — GET/POST/DELETE /Audio/{itemId}/CascadeLyrics"
+      }
+    ]
+  }
+]
