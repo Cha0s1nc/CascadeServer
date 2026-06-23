@@ -136,14 +136,19 @@ public class CascadeLyricsController : ControllerBase
         if (string.IsNullOrWhiteSpace(dto?.Lrc))
             return BadRequest(new { error = "Lyrics content (lrc) is required." });
 
+        var item = _libraryManager.GetItemById(itemId);
+        if (item?.Path is null)
+            return NotFound(new { error = "Item not found or has no file path." });
+
         var isSynced = string.Equals(dto.Type, "synced", StringComparison.OrdinalIgnoreCase);
-        var storagePath = isSynced ? LrcPath(itemId) : SlrcPath(itemId);
+        var ext = isSynced ? ".lrc" : ".slrc";
+        var storagePath = Path.ChangeExtension(item.Path, ext);
 
         System.IO.File.WriteAllText(storagePath, dto.Lrc);
 
         _logger.LogInformation(
-            "Saved {Type} lyrics for item {ItemId} ({Length} chars)",
-            isSynced ? "synced" : "karaoke", itemId, dto.Lrc.Length);
+            "Saved {Type} lyrics for item {ItemId} as sidecar at {Path} ({Length} chars)",
+            isSynced ? "synced" : "karaoke", itemId, storagePath, dto.Lrc.Length);
 
         return NoContent();
     }
@@ -161,8 +166,12 @@ public class CascadeLyricsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult DeleteLyrics([FromRoute] Guid itemId)
     {
-        var slrc = SlrcPath(itemId);
-        var lrc  = LrcPath(itemId);
+        var item = _libraryManager.GetItemById(itemId);
+        if (item?.Path is null)
+            return NotFound(new { error = "Item not found or has no file path." });
+
+        var slrc = Path.ChangeExtension(item.Path, ".slrc");
+        var lrc  = Path.ChangeExtension(item.Path, ".lrc");
 
         if (!System.IO.File.Exists(slrc) && !System.IO.File.Exists(lrc))
             return NotFound();
@@ -170,7 +179,7 @@ public class CascadeLyricsController : ControllerBase
         if (System.IO.File.Exists(slrc)) System.IO.File.Delete(slrc);
         if (System.IO.File.Exists(lrc))  System.IO.File.Delete(lrc);
 
-        _logger.LogInformation("Deleted cascade lyrics for item {ItemId}", itemId);
+        _logger.LogInformation("Deleted sidecar lyrics for item {ItemId}", itemId);
         return NoContent();
     }
 }

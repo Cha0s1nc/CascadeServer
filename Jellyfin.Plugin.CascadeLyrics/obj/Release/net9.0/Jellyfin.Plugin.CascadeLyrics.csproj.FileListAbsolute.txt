@@ -12,3 +12,4 @@
 /Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/obj/Release/net9.0/Jellyfin.Plugin.CascadeLyrics.xml
 /Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/obj/Release/net9.0/Jellyfin.Plugin.CascadeLyrics.pdb
 /Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/obj/Release/net9.0/ref/Jellyfin.Plugin.CascadeLyrics.dll
+/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/obj/Release/net9.0/Jellyfin.Plugin.CascadeLyrics.sourcelink.json

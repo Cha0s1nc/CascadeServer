@@ -130,5 +130,34 @@
         <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.ExecuteAsync(System.IProgress{System.Double},System.Threading.CancellationToken)">
             <inheritdoc/>
         </member>
+        <member name="T:Jellyfin.Plugin.CascadeLyrics.SpicyLyrics.SpicyLyricsClient">
+            <summary>
+            Fetches word-level karaoke lyrics from the SpicyLyrics Dev API.
+            Requires an API key from @spikerko on Discord (https://devapi.spicylyrics.org/).
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.SpicyLyrics.SpicyLyricsClient.FetchAsync(System.Net.Http.HttpClient,System.String,System.String,System.String,System.String,System.Int32,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Fetches word-level lyrics for a track. Returns enhanced LRC text (.slrc format)
+            or null if not found / API unavailable.
+            </summary>
+            <param name="client">Shared HttpClient (caller owns lifetime).</param>
+            <param name="apiKey">SpicyLyrics Dev API key.</param>
+            <param name="title">Track title.</param>
+            <param name="artist">Primary artist name.</param>
+            <param name="album">Album name (optional but improves matching).</param>
+            <param name="durationSeconds">Track duration in seconds (optional but improves matching).</param>
+            <param name="spotifyToken">
+              Optional Spotify OAuth token — some SpicyLyrics endpoints require it for track
+              matching. Leave null to skip Spotify-dependent endpoints.
+            </param>
+            <param name="ct">Cancellation token.</param>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.SpicyLyrics.SpicyLyricsClient.ParseLrc(System.Text.Json.JsonElement,System.String,System.String)">
+            <summary>
+            Extracts enhanced LRC text from the API response JSON.
+            TODO: update property names once the real response shape is known.
+            </summary>
+        </member>
     </members>
 </doc>
