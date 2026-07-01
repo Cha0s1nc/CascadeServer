@@ -8,9 +8,13 @@
              <summary>
              Provides GET / POST / DELETE endpoints for enhanced karaoke lyrics.
             
-             Storage priority (GET):
-               1. {JellyfinData}/data/cascade-lyrics/{itemId}.slrc  — uploaded via this API
-               2. {audioFile}.slrc sidecar file                     — pre-existing files on disk
+             Lyrics are stored as sidecar files next to the audio file:
+               {audioFile}.slrc  — karaoke (word-level Enhanced LRC)
+               {audioFile}.lrc   — synced (line-level LRC)
+            
+             Legacy data-dir files ({JellyfinData}/data/cascade-lyrics/{itemId}.*) are
+             read as a fallback so existing installs keep working, but new writes always
+             go to the sidecar location.
             
              Any authenticated Jellyfin user can read and write lyrics.
              </summary>
@@ -18,42 +22,37 @@
         <member name="M:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsController.#ctor(MediaBrowser.Controller.Library.ILibraryManager,MediaBrowser.Common.Configuration.IApplicationPaths,Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsController})">
             <summary>Initialises a new instance of <see cref="T:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsController"/>.</summary>
         </member>
-        <member name="M:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsController.GetDataDir">
-            <summary>Returns the data directory, creating it if needed.</summary>
-        </member>
-        <member name="M:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsController.FindSidecar(System.Guid)">
-            <summary>
-            Returns a (path, type) tuple for a sidecar lyrics file next to the audio file,
-            or null if none exists. Checks .slrc (karaoke) first, then .lrc (synced).
-            </summary>
-        </member>
         <member name="M:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsController.GetLyrics(System.Guid)">
-            <summary>
-            Gets enhanced (karaoke) lyrics for the specified audio item.
-            Returns <c>{ "lrc": "..." }</c> on success, or 404 if none are stored.
-            </summary>
-            <param name="itemId">The Jellyfin item ID.</param>
-            <response code="200">Returns the raw enhanced LRC text.</response>
-            <response code="404">No karaoke lyrics found for this item.</response>
+             <summary>
+             Gets lyrics for the specified audio item.
+            
+             Priority:
+               1. {audioFile}.slrc sidecar  — karaoke (word-level)
+               2. {audioFile}.lrc  sidecar  — synced  (line-level)
+               3. Legacy data-dir .slrc     — karaoke (backward compat)
+               4. Legacy data-dir .lrc      — synced  (backward compat)
+             </summary>
+             <param name="itemId">The Jellyfin item ID.</param>
+             <response code="200">Returns <c>{ "lrc": "...", "type": "karaoke"|"synced" }</c>.</response>
+             <response code="404">No lyrics found for this item.</response>
         </member>
         <member name="M:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsController.SaveLyrics(System.Guid,Jellyfin.Plugin.CascadeLyrics.Api.SaveLyricsDto)">
             <summary>
-            Saves enhanced (karaoke) lyrics for the specified audio item.
+            Saves lyrics for the specified audio item as a sidecar file.
             Any authenticated user can save lyrics — they are shared server-wide.
             </summary>
             <param name="itemId">The Jellyfin item ID.</param>
-            <param name="dto">The LRC content to store.</param>
+            <param name="dto">The LRC content and type to store.</param>
             <response code="204">Lyrics saved successfully.</response>
             <response code="400">Missing or empty lyrics content.</response>
         </member>
         <member name="M:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsController.DeleteLyrics(System.Guid)">
             <summary>
-            Deletes stored enhanced lyrics for the specified audio item.
-            Does not affect sidecar files on disk.
+            Deletes sidecar lyrics for the specified audio item.
             </summary>
             <param name="itemId">The Jellyfin item ID.</param>
             <response code="204">Lyrics deleted.</response>
-            <response code="404">No stored lyrics found for this item.</response>
+            <response code="404">No lyrics found for this item.</response>
         </member>
         <member name="T:Jellyfin.Plugin.CascadeLyrics.Api.SaveLyricsDto">
             <summary>Request body for saving lyrics.</summary>
@@ -103,13 +102,17 @@
             <inheritdoc/>
         </member>
         <member name="T:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask">
-            <summary>
-            Scheduled task that iterates all audio items in the library and downloads
-            karaoke lyrics from SyncLRC (.slrc) and synced lyrics from LRCLIB (.lrc).
-            Existing files are kept unless a better format is found.
-            </summary>
+             <summary>
+             Scheduled task that iterates all audio items in the library and downloads
+             lyrics into sidecar files next to the audio file:
+               {audioFile}.slrc — karaoke (word-level Enhanced LRC, from Kugou KRC)
+               {audioFile}.lrc  — synced  (line-level LRC, from LRCLIB)
+            
+             Items that already have either sidecar are skipped entirely.
+             If karaoke is found, synced is not fetched (karaoke is a superset).
+             </summary>
         </member>
-        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.#ctor(MediaBrowser.Controller.Library.ILibraryManager,MediaBrowser.Common.Configuration.IApplicationPaths,Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask},System.Net.Http.IHttpClientFactory)">
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.#ctor(MediaBrowser.Controller.Library.ILibraryManager,Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask},System.Net.Http.IHttpClientFactory)">
             <summary>Initialises a new instance of <see cref="T:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask"/>.</summary>
         </member>
         <member name="P:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.Name">
@@ -130,34 +133,125 @@
         <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.ExecuteAsync(System.IProgress{System.Double},System.Threading.CancellationToken)">
             <inheritdoc/>
         </member>
-        <member name="T:Jellyfin.Plugin.CascadeLyrics.SpicyLyrics.SpicyLyricsClient">
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.KrcToEnhancedLrc(System.String)">
             <summary>
-            Fetches word-level karaoke lyrics from the SpicyLyrics Dev API.
-            Requires an API key from @spikerko on Discord (https://devapi.spicylyrics.org/).
+            Converts decrypted KRC text to Enhanced LRC format.
+            KRC line: [lineStartMs,lineDurMs]&lt;wordOffsetMs,wordDurMs,0&gt;text...
+            Enhanced LRC line: [mm:ss.xx]&lt;mm:ss.xx&gt;word1 &lt;mm:ss.xx&gt;word2
             </summary>
         </member>
-        <member name="M:Jellyfin.Plugin.CascadeLyrics.SpicyLyrics.SpicyLyricsClient.FetchAsync(System.Net.Http.HttpClient,System.String,System.String,System.String,System.String,System.Int32,System.String,System.Threading.CancellationToken)">
-            <summary>
-            Fetches word-level lyrics for a track. Returns enhanced LRC text (.slrc format)
-            or null if not found / API unavailable.
-            </summary>
-            <param name="client">Shared HttpClient (caller owns lifetime).</param>
-            <param name="apiKey">SpicyLyrics Dev API key.</param>
-            <param name="title">Track title.</param>
-            <param name="artist">Primary artist name.</param>
-            <param name="album">Album name (optional but improves matching).</param>
-            <param name="durationSeconds">Track duration in seconds (optional but improves matching).</param>
-            <param name="spotifyToken">
-              Optional Spotify OAuth token — some SpicyLyrics endpoints require it for track
-              matching. Leave null to skip Spotify-dependent endpoints.
-            </param>
-            <param name="ct">Cancellation token.</param>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.LineRegex">
+            <remarks>
+            Pattern:<br/>
+            <code>^\\[(\\d+),(\\d+)\\](.*)$</code><br/>
+            Explanation:<br/>
+            <code>
+            ○ Match if at the beginning of the string.<br/>
+            ○ Match '['.<br/>
+            ○ 1st capture group.<br/>
+                ○ Match a Unicode digit atomically at least once.<br/>
+            ○ Match ','.<br/>
+            ○ 2nd capture group.<br/>
+                ○ Match a Unicode digit atomically at least once.<br/>
+            ○ Match ']'.<br/>
+            ○ 3rd capture group.<br/>
+                ○ Match a character other than '\n' greedily any number of times.<br/>
+            ○ Match if at the end of the string or if before an ending newline.<br/>
+            </code>
+            </remarks>
         </member>
-        <member name="M:Jellyfin.Plugin.CascadeLyrics.SpicyLyrics.SpicyLyricsClient.ParseLrc(System.Text.Json.JsonElement,System.String,System.String)">
-            <summary>
-            Extracts enhanced LRC text from the API response JSON.
-            TODO: update property names once the real response shape is known.
-            </summary>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.WordRegex">
+            <remarks>
+            Pattern:<br/>
+            <code>&lt;(\\d+),(\\d+),\\d+&gt;([^&lt;]*)</code><br/>
+            Explanation:<br/>
+            <code>
+            ○ Match '&lt;'.<br/>
+            ○ 1st capture group.<br/>
+                ○ Match a Unicode digit atomically at least once.<br/>
+            ○ Match ','.<br/>
+            ○ 2nd capture group.<br/>
+                ○ Match a Unicode digit atomically at least once.<br/>
+            ○ Match ','.<br/>
+            ○ Match a Unicode digit atomically at least once.<br/>
+            ○ Match '&gt;'.<br/>
+            ○ 3rd capture group.<br/>
+                ○ Match a character other than '&lt;' atomically any number of times.<br/>
+            </code>
+            </remarks>
+        </member>
+        <member name="T:System.Text.RegularExpressions.Generated.LineRegex_0">
+            <summary>Custom <see cref="T:System.Text.RegularExpressions.Regex"/>-derived type for the LineRegex method.</summary>
+        </member>
+        <member name="F:System.Text.RegularExpressions.Generated.LineRegex_0.Instance">
+            <summary>Cached, thread-safe singleton instance.</summary>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.LineRegex_0.#ctor">
+            <summary>Initializes the instance.</summary>
+        </member>
+        <member name="T:System.Text.RegularExpressions.Generated.LineRegex_0.RunnerFactory">
+            <summary>Provides a factory for creating <see cref="T:System.Text.RegularExpressions.RegexRunner"/> instances to be used by methods on <see cref="T:System.Text.RegularExpressions.Regex"/>.</summary>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.LineRegex_0.RunnerFactory.CreateInstance">
+            <summary>Creates an instance of a <see cref="T:System.Text.RegularExpressions.RegexRunner"/> used by methods on <see cref="T:System.Text.RegularExpressions.Regex"/>.</summary>
+        </member>
+        <member name="T:System.Text.RegularExpressions.Generated.LineRegex_0.RunnerFactory.Runner">
+            <summary>Provides the runner that contains the custom logic implementing the specified regular expression.</summary>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.LineRegex_0.RunnerFactory.Runner.Scan(System.ReadOnlySpan{System.Char})">
+            <summary>Scan the <paramref name="inputSpan"/> starting from base.runtextstart for the next match.</summary>
+            <param name="inputSpan">The text being scanned by the regular expression.</param>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.LineRegex_0.RunnerFactory.Runner.TryFindNextPossibleStartingPosition(System.ReadOnlySpan{System.Char})">
+            <summary>Search <paramref name="inputSpan"/> starting from base.runtextpos for the next location a match could possibly start.</summary>
+            <param name="inputSpan">The text being scanned by the regular expression.</param>
+            <returns>true if a possible match was found; false if no more matches are possible.</returns>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.LineRegex_0.RunnerFactory.Runner.TryMatchAtCurrentPosition(System.ReadOnlySpan{System.Char})">
+            <summary>Determine whether <paramref name="inputSpan"/> at base.runtextpos is a match for the regular expression.</summary>
+            <param name="inputSpan">The text being scanned by the regular expression.</param>
+            <returns>true if the regular expression matches at the current position; otherwise, false.</returns>
+        </member>
+        <member name="T:System.Text.RegularExpressions.Generated.WordRegex_1">
+            <summary>Custom <see cref="T:System.Text.RegularExpressions.Regex"/>-derived type for the WordRegex method.</summary>
+        </member>
+        <member name="F:System.Text.RegularExpressions.Generated.WordRegex_1.Instance">
+            <summary>Cached, thread-safe singleton instance.</summary>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.WordRegex_1.#ctor">
+            <summary>Initializes the instance.</summary>
+        </member>
+        <member name="T:System.Text.RegularExpressions.Generated.WordRegex_1.RunnerFactory">
+            <summary>Provides a factory for creating <see cref="T:System.Text.RegularExpressions.RegexRunner"/> instances to be used by methods on <see cref="T:System.Text.RegularExpressions.Regex"/>.</summary>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.WordRegex_1.RunnerFactory.CreateInstance">
+            <summary>Creates an instance of a <see cref="T:System.Text.RegularExpressions.RegexRunner"/> used by methods on <see cref="T:System.Text.RegularExpressions.Regex"/>.</summary>
+        </member>
+        <member name="T:System.Text.RegularExpressions.Generated.WordRegex_1.RunnerFactory.Runner">
+            <summary>Provides the runner that contains the custom logic implementing the specified regular expression.</summary>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.WordRegex_1.RunnerFactory.Runner.Scan(System.ReadOnlySpan{System.Char})">
+            <summary>Scan the <paramref name="inputSpan"/> starting from base.runtextstart for the next match.</summary>
+            <param name="inputSpan">The text being scanned by the regular expression.</param>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.WordRegex_1.RunnerFactory.Runner.TryFindNextPossibleStartingPosition(System.ReadOnlySpan{System.Char})">
+            <summary>Search <paramref name="inputSpan"/> starting from base.runtextpos for the next location a match could possibly start.</summary>
+            <param name="inputSpan">The text being scanned by the regular expression.</param>
+            <returns>true if a possible match was found; false if no more matches are possible.</returns>
+        </member>
+        <member name="M:System.Text.RegularExpressions.Generated.WordRegex_1.RunnerFactory.Runner.TryMatchAtCurrentPosition(System.ReadOnlySpan{System.Char})">
+            <summary>Determine whether <paramref name="inputSpan"/> at base.runtextpos is a match for the regular expression.</summary>
+            <param name="inputSpan">The text being scanned by the regular expression.</param>
+            <returns>true if the regular expression matches at the current position; otherwise, false.</returns>
+        </member>
+        <member name="T:System.Text.RegularExpressions.Generated.Utilities">
+            <summary>Helper methods used by generated <see cref="T:System.Text.RegularExpressions.Regex"/>-derived implementations.</summary>
+        </member>
+        <member name="F:System.Text.RegularExpressions.Generated.Utilities.s_defaultTimeout">
+            <summary>Default timeout value set in <see cref="T:System.AppContext"/>, or <see cref="F:System.Text.RegularExpressions.Regex.InfiniteMatchTimeout"/> if none was set.</summary>
+        </member>
+        <member name="F:System.Text.RegularExpressions.Generated.Utilities.s_hasTimeout">
+            <summary>Whether <see cref="F:System.Text.RegularExpressions.Generated.Utilities.s_defaultTimeout"/> is non-infinite.</summary>
         </member>
     </members>
 </doc>

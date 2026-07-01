@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Jellyfin.Plugin.CascadeLyrics")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0.0+971250f0e337d0e794f02e764414c1a2bd2798f6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0.0+718797932fb5159c5e7fffb3c2cf1f0b3aaa72ae")]
 [assembly: System.Reflection.AssemblyProductAttribute("Jellyfin.Plugin.CascadeLyrics")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Jellyfin.Plugin.CascadeLyrics")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

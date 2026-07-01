@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
 using Jellyfin.Data.Enums;
@@ -17,25 +19,30 @@ namespace Jellyfin.Plugin.CascadeLyrics.ScheduledTasks;
 
 /// <summary>
 /// Scheduled task that iterates all audio items in the library and downloads
-/// karaoke lyrics from SyncLRC (.slrc) and synced lyrics from LRCLIB (.lrc).
-/// Existing files are kept unless a better format is found.
+/// lyrics into sidecar files next to the audio file:
+///   {audioFile}.slrc — karaoke (word-level Enhanced LRC, from Kugou KRC)
+///   {audioFile}.lrc  — synced  (line-level LRC, from LRCLIB)
+///
+/// Items that already have either sidecar are skipped entirely.
+/// If karaoke is found, synced is not fetched (karaoke is a superset).
 /// </summary>
-public class DownloadLyricsTask : IScheduledTask
+public partial class DownloadLyricsTask : IScheduledTask
 {
+    // Kugou KRC decryption key
+    private static readonly byte[] KrcKey =
+        [0x40, 0x47, 0x61, 0x77, 0x5E, 0x32, 0x74, 0x47, 0x51, 0x36, 0x31, 0x2D, 0xCE, 0xD2, 0x6E, 0x69];
+
     private readonly ILibraryManager _libraryManager;
-    private readonly IApplicationPaths _appPaths;
     private readonly ILogger<DownloadLyricsTask> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
 
     /// <summary>Initialises a new instance of <see cref="DownloadLyricsTask"/>.</summary>
     public DownloadLyricsTask(
         ILibraryManager libraryManager,
-        IApplicationPaths appPaths,
         ILogger<DownloadLyricsTask> logger,
         IHttpClientFactory httpClientFactory)
     {
         _libraryManager = libraryManager;
-        _appPaths = appPaths;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
     }
@@ -48,8 +55,8 @@ public class DownloadLyricsTask : IScheduledTask
 
     /// <inheritdoc/>
     public string Description =>
-        "Downloads karaoke lyrics from SyncLRC and synced lyrics from LRCLIB for all audio items. " +
-        "Stores karaoke as .slrc and synced as .lrc. Skips items that already have karaoke stored.";
+        "Downloads karaoke lyrics from Kugou (.slrc) and synced lyrics from LRCLIB (.lrc) " +
+        "as sidecar files next to each audio file. Skips items that already have a sidecar.";
 
     /// <inheritdoc/>
     public string Category => "Cascade Lyrics";
@@ -77,6 +84,7 @@ public class DownloadLyricsTask : IScheduledTask
 
         var items = _libraryManager.GetItemList(query)
             .OfType<Audio>()
+            .Where(a => a.Path is not null)
             .ToList();
 
         var total = items.Count;
@@ -86,16 +94,14 @@ public class DownloadLyricsTask : IScheduledTask
             return;
         }
 
-        var dataDir = Path.Combine(_appPaths.DataPath, "cascade-lyrics");
-        Directory.CreateDirectory(dataDir);
-
         using var httpClient = _httpClientFactory.CreateClient();
-        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Cascade/1.0");
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; Cascade/1.0)");
         httpClient.Timeout = TimeSpan.FromSeconds(15);
 
-        var completed = 0;
+        var completed    = 0;
+        var skipped      = 0;
         var savedKaraoke = 0;
-        var savedSynced = 0;
+        var savedSynced  = 0;
 
         foreach (var item in items)
         {
@@ -103,7 +109,8 @@ public class DownloadLyricsTask : IScheduledTask
 
             try
             {
-                var (k, s) = await ProcessItemAsync(item, dataDir, httpClient, cancellationToken);
+                var (k, s, skip) = await ProcessItemAsync(item, httpClient, cancellationToken);
+                if (skip) skipped++;
                 if (k) savedKaraoke++;
                 if (s) savedSynced++;
             }
@@ -120,16 +127,20 @@ public class DownloadLyricsTask : IScheduledTask
         }
 
         _logger.LogInformation(
-            "Cascade lyrics download complete. Saved {Karaoke} karaoke, {Synced} synced out of {Total} tracks.",
-            savedKaraoke, savedSynced, total);
+            "Cascade lyrics download complete. Saved {Karaoke} karaoke, {Synced} synced, " +
+            "skipped {Skipped} (already had sidecar) out of {Total} tracks.",
+            savedKaraoke, savedSynced, skipped, total);
     }
 
-    private async Task<(bool savedKaraoke, bool savedSynced)> ProcessItemAsync(
-        Audio item, string dataDir, HttpClient httpClient, CancellationToken ct)
+    private async Task<(bool savedKaraoke, bool savedSynced, bool skipped)> ProcessItemAsync(
+        Audio item, HttpClient httpClient, CancellationToken ct)
     {
-        var idStr = item.Id.ToString("N");
-        var slrcPath = Path.Combine(dataDir, $"{idStr}.slrc");
-        var lrcPath  = Path.Combine(dataDir, $"{idStr}.lrc");
+        var slrcSidecar = Path.ChangeExtension(item.Path, ".slrc");
+        var lrcSidecar  = Path.ChangeExtension(item.Path, ".lrc");
+
+        // Skip entirely if any sidecar already exists
+        if (File.Exists(slrcSidecar) || File.Exists(lrcSidecar))
+            return (false, false, true);
 
         var title    = item.Name ?? string.Empty;
         var artist   = item.AlbumArtists?.FirstOrDefault()
@@ -141,69 +152,155 @@ public class DownloadLyricsTask : IScheduledTask
             : 0;
 
         if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(artist))
-            return (false, false);
+            return (false, false, false);
 
-        var savedKaraoke = false;
-        var savedSynced  = false;
+        var durationMs = duration * 1000;
 
-        // ── 1. Try SyncLRC for karaoke (.slrc) ───────────────────────────────
-        if (!System.IO.File.Exists(slrcPath))
+        // ── 1. Try Kugou for karaoke (.slrc) ─────────────────────────────────
+        var karaoke = await FetchKugouAsync(httpClient, title, artist, durationMs, ct);
+        if (karaoke is not null)
         {
-            var karaoke = await FetchSyncLrcAsync(httpClient, title, artist, album, duration, ct);
-            if (karaoke is not null)
-            {
-                await System.IO.File.WriteAllTextAsync(slrcPath, karaoke, ct);
-                _logger.LogDebug("Saved karaoke for \"{Title}\" by {Artist}", title, artist);
-                savedKaraoke = true;
-            }
+            await File.WriteAllTextAsync(slrcSidecar, karaoke, ct);
+            _logger.LogDebug("Saved karaoke sidecar for \"{Title}\" by {Artist}", title, artist);
+            return (true, false, false);
         }
 
-        // ── 2. Try LRCLIB for synced (.lrc) — only if no karaoke stored ──────
-        if (!System.IO.File.Exists(slrcPath) && !System.IO.File.Exists(lrcPath))
+        // ── 2. Try LRCLIB for synced (.lrc) — only if no karaoke found ───────
+        var synced = await FetchLrclibAsync(httpClient, title, artist, album, duration, ct);
+        if (synced is not null)
         {
-            var synced = await FetchLrclibAsync(httpClient, title, artist, album, duration, ct);
-            if (synced is not null)
-            {
-                await System.IO.File.WriteAllTextAsync(lrcPath, synced, ct);
-                _logger.LogDebug("Saved synced lyrics for \"{Title}\" by {Artist}", title, artist);
-                savedSynced = true;
-            }
+            await File.WriteAllTextAsync(lrcSidecar, synced, ct);
+            _logger.LogDebug("Saved synced sidecar for \"{Title}\" by {Artist}", title, artist);
+            return (false, true, false);
         }
 
-        return (savedKaraoke, savedSynced);
+        return (false, false, false);
     }
 
-    private async Task<string?> FetchSyncLrcAsync(
-        HttpClient client, string title, string artist, string album, int duration, CancellationToken ct)
+    // ── Kugou ─────────────────────────────────────────────────────────────────
+
+    private async Task<string?> FetchKugouAsync(
+        HttpClient client, string title, string artist, int durationMs, CancellationToken ct)
     {
         try
         {
-            var url = "https://api.synclrc.dev/lyrics"
-                    + $"?track={Uri.EscapeDataString(title)}"
-                    + $"&artist={Uri.EscapeDataString(artist)}"
-                    + "&type=karaoke"
-                    + (album.Length > 0 ? $"&album={Uri.EscapeDataString(album)}" : string.Empty)
-                    + (duration > 0    ? $"&duration={duration}"                  : string.Empty);
+            // 1. Search
+            var keyword   = $"{artist} - {title}";
+            var searchUrl = "http://lyrics.kugou.com/search?ver=1&man=yes&client=pc" +
+                            $"&keyword={Uri.EscapeDataString(keyword)}&duration={durationMs}";
 
-            using var response = await client.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode) return null;
+            using var sRes  = await client.GetAsync(searchUrl, ct);
+            if (!sRes.IsSuccessStatusCode) return null;
 
-            await using var stream = await response.Content.ReadAsStreamAsync(ct);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            await using var sStream = await sRes.Content.ReadAsStreamAsync(ct);
+            using var sDoc  = await JsonDocument.ParseAsync(sStream, cancellationToken: ct);
 
-            if (doc.RootElement.TryGetProperty("karaoke", out var el))
-            {
-                var val = el.GetString();
-                return string.IsNullOrWhiteSpace(val) ? null : val;
-            }
+            if (!sDoc.RootElement.TryGetProperty("candidates", out var candidates) ||
+                candidates.GetArrayLength() == 0)
+                return null;
+
+            var first     = candidates[0];
+            var id        = first.GetProperty("id").GetRawText().Trim('"');
+            var accessKey = first.GetProperty("accesskey").GetString() ?? string.Empty;
+
+            // 2. Download
+            var dlUrl = "http://lyrics.kugou.com/download?ver=1&client=pc" +
+                        $"&id={id}&accesskey={Uri.EscapeDataString(accessKey)}&fmt=krc&charset=utf8";
+
+            using var dRes  = await client.GetAsync(dlUrl, ct);
+            if (!dRes.IsSuccessStatusCode) return null;
+
+            await using var dStream = await dRes.Content.ReadAsStreamAsync(ct);
+            using var dDoc  = await JsonDocument.ParseAsync(dStream, cancellationToken: ct);
+
+            if (!dDoc.RootElement.TryGetProperty("content", out var contentEl))
+                return null;
+
+            var b64 = contentEl.GetString();
+            if (string.IsNullOrWhiteSpace(b64)) return null;
+
+            // 3. Decrypt: skip 4-byte 'krc1' magic, XOR with key, zlib inflate
+            var encrypted = Convert.FromBase64String(b64);
+            var raw       = encrypted.AsSpan(4);
+            var decrypted = new byte[raw.Length];
+            for (var i = 0; i < raw.Length; i++)
+                decrypted[i] = (byte)(raw[i] ^ KrcKey[i % 16]);
+
+            string krcText;
+            using (var ms  = new MemoryStream(decrypted))
+            using (var zlib = new ZLibStream(ms, CompressionMode.Decompress))
+            using (var sr  = new StreamReader(zlib, Encoding.UTF8))
+                krcText = await sr.ReadToEndAsync(ct);
+
+            // 4. Convert KRC → Enhanced LRC
+            var enhanced = KrcToEnhancedLrc(krcText);
+            return string.IsNullOrWhiteSpace(enhanced) ? null : enhanced;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "SyncLRC fetch failed for \"{Title}\"", title);
+            _logger.LogDebug(ex, "Kugou fetch failed for \"{Title}\"", title);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Converts decrypted KRC text to Enhanced LRC format.
+    /// KRC line: [lineStartMs,lineDurMs]&lt;wordOffsetMs,wordDurMs,0&gt;text...
+    /// Enhanced LRC line: [mm:ss.xx]&lt;mm:ss.xx&gt;word1 &lt;mm:ss.xx&gt;word2
+    /// </summary>
+    private static string KrcToEnhancedLrc(string krcText)
+    {
+        var lineRegex = LineRegex();
+        var wordRegex = WordRegex();
+        var sb = new StringBuilder();
+
+        foreach (var rawLine in krcText.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            var lm = lineRegex.Match(line);
+            if (!lm.Success) continue;   // skip [ti:], [ar:], [offset:] etc.
+
+            var lineStartMs = long.Parse(lm.Groups[1].Value);
+            var content     = lm.Groups[3].Value;
+
+            var wordParts = new StringBuilder();
+            var hasWords  = false;
+
+            foreach (Match wm in wordRegex.Matches(content))
+            {
+                var wordText = wm.Groups[3].Value;
+                if (string.IsNullOrEmpty(wordText)) continue;
+
+                var wOffMs     = long.Parse(wm.Groups[1].Value);
+                var wordStartMs = lineStartMs + wOffMs;
+                wordParts.Append($"<{MsToLrc(wordStartMs)}>{wordText}");
+                hasWords = true;
+            }
+
+            if (!hasWords) continue;
+
+            sb.AppendLine($"[{MsToLrc(lineStartMs)}]{wordParts.ToString().TrimStart()}");
         }
 
-        return null;
+        return sb.ToString().TrimEnd();
     }
+
+    private static string MsToLrc(long ms)
+    {
+        var totalSecs = ms / 1000.0;
+        var m  = (int)(totalSecs / 60);
+        var s  = totalSecs % 60;
+        var cs = (int)Math.Round((s % 1) * 100);
+        return $"{m:D2}:{(int)s:D2}.{cs:D2}";
+    }
+
+    [GeneratedRegex(@"^\[(\d+),(\d+)\](.*)$")]
+    private static partial Regex LineRegex();
+
+    [GeneratedRegex(@"<(\d+),(\d+),\d+>([^<]*)")]
+    private static partial Regex WordRegex();
+
+    // ── LRCLIB ────────────────────────────────────────────────────────────────
 
     private async Task<string?> FetchLrclibAsync(
         HttpClient client, string title, string artist, string album, int duration, CancellationToken ct)
