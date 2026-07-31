@@ -54,6 +54,34 @@
             <response code="204">Lyrics deleted.</response>
             <response code="404">No lyrics found for this item.</response>
         </member>
+        <member name="T:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsStatusController">
+            <summary>
+            Reports, per audio item, whether Kugou has karaoke lyrics available and whether a
+            sidecar has already been downloaded. Backs the "Cascade Lyrics" dashboard page.
+            Admin-only — this walks the whole library and can trigger live network calls.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsStatusController.#ctor(MediaBrowser.Controller.Library.ILibraryManager,MediaBrowser.Common.Configuration.IApplicationPaths,System.Net.Http.IHttpClientFactory,Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsStatusController})">
+            <summary>Initialises a new instance of <see cref="T:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsStatusController"/>.</summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsStatusController.GetStatus">
+            <summary>
+            Gets the last-known Kugou/sidecar status for every audio item in the library, from the
+            report the scheduled "Download Cascade Lyrics" task last wrote. Tracks it hasn't reached
+            yet are reported as unchecked rather than missing.
+            </summary>
+            <response code="200">Returns the status rows.</response>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Api.CascadeLyricsStatusController.Recheck(System.Guid,System.Threading.CancellationToken)">
+            <summary>
+            Forces a fresh Kugou lookup for a single item, ignoring any existing sidecar, and
+            updates the cached report. Writes a new .slrc sidecar if Kugou has a match.
+            </summary>
+            <param name="itemId">The Jellyfin item ID.</param>
+            <param name="ct">Cancellation token.</param>
+            <response code="200">Returns the updated status row.</response>
+            <response code="404">Item not found or has no file path.</response>
+        </member>
         <member name="T:Jellyfin.Plugin.CascadeLyrics.Api.SaveLyricsDto">
             <summary>Request body for saving lyrics.</summary>
         </member>
@@ -69,6 +97,27 @@
             Gets or sets the lyrics type. "karaoke" (default) saves as .slrc,
             "synced" saves as .lrc.
             </summary>
+        </member>
+        <member name="T:Jellyfin.Plugin.CascadeLyrics.Configuration.LyricsStatusEntry">
+            <summary>Cached result of the last lyrics-availability check for one audio item.</summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.CascadeLyrics.Configuration.LyricsStatusEntry.Name">
+            <summary>Gets or sets the track title at the time it was last checked.</summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.CascadeLyrics.Configuration.LyricsStatusEntry.Artist">
+            <summary>Gets or sets the artist at the time it was last checked.</summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.CascadeLyrics.Configuration.LyricsStatusEntry.KugouAvailable">
+            <summary>Gets or sets a value indicating whether Kugou had word-level karaoke lyrics for this track.</summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.CascadeLyrics.Configuration.LyricsStatusEntry.HasSidecar">
+            <summary>Gets or sets a value indicating whether a sidecar file (.slrc or .lrc) exists next to the track.</summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.CascadeLyrics.Configuration.LyricsStatusEntry.SidecarType">
+            <summary>Gets or sets the sidecar type: "karaoke", "synced", or <c>null</c> if none exists.</summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.CascadeLyrics.Configuration.LyricsStatusEntry.LastChecked">
+            <summary>Gets or sets when this entry was last checked or observed.</summary>
         </member>
         <member name="T:Jellyfin.Plugin.CascadeLyrics.Configuration.PluginConfiguration">
             <summary>Plugin configuration (extend as needed).</summary>
@@ -101,6 +150,9 @@
         <member name="P:Jellyfin.Plugin.CascadeLyrics.Plugin.Description">
             <inheritdoc/>
         </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Plugin.GetPages">
+            <inheritdoc/>
+        </member>
         <member name="T:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask">
              <summary>
              Scheduled task that iterates all audio items in the library and downloads
@@ -110,9 +162,13 @@
             
              Items that already have either sidecar are skipped entirely.
              If karaoke is found, synced is not fetched (karaoke is a superset).
+            
+             Every item processed (including skips) gets an entry recorded in the
+             Kugou-availability report via <see cref="T:Jellyfin.Plugin.CascadeLyrics.Services.LyricsStatusStore"/>, which backs
+             the "Cascade Lyrics" dashboard tab.
              </summary>
         </member>
-        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.#ctor(MediaBrowser.Controller.Library.ILibraryManager,Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask},System.Net.Http.IHttpClientFactory)">
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.#ctor(MediaBrowser.Controller.Library.ILibraryManager,MediaBrowser.Common.Configuration.IApplicationPaths,Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask},System.Net.Http.IHttpClientFactory)">
             <summary>Initialises a new instance of <see cref="T:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask"/>.</summary>
         </member>
         <member name="P:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.Name">
@@ -133,14 +189,26 @@
         <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.ExecuteAsync(System.IProgress{System.Double},System.Threading.CancellationToken)">
             <inheritdoc/>
         </member>
-        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.KrcToEnhancedLrc(System.String)">
+        <member name="T:Jellyfin.Plugin.CascadeLyrics.Services.KugouLyricsClient">
+            <summary>
+            Fetches word-level karaoke lyrics from Kugou (KRC format) and converts them to Enhanced
+            LRC. Shared by the scheduled download task and the on-demand status recheck endpoint.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Services.KugouLyricsClient.#ctor(Microsoft.Extensions.Logging.ILogger)">
+            <summary>Initialises a new instance of <see cref="T:Jellyfin.Plugin.CascadeLyrics.Services.KugouLyricsClient"/>.</summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Services.KugouLyricsClient.FetchKaraokeAsync(System.Net.Http.HttpClient,System.String,System.String,System.Int32,System.Threading.CancellationToken)">
+            <summary>Searches Kugou for a track and returns Enhanced LRC karaoke lyrics, or <c>null</c> if unavailable.</summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Services.KugouLyricsClient.KrcToEnhancedLrc(System.String)">
             <summary>
             Converts decrypted KRC text to Enhanced LRC format.
             KRC line: [lineStartMs,lineDurMs]&lt;wordOffsetMs,wordDurMs,0&gt;text...
             Enhanced LRC line: [mm:ss.xx]&lt;mm:ss.xx&gt;word1 &lt;mm:ss.xx&gt;word2
             </summary>
         </member>
-        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.LineRegex">
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Services.KugouLyricsClient.LineRegex">
             <remarks>
             Pattern:<br/>
             <code>^\\[(\\d+),(\\d+)\\](.*)$</code><br/>
@@ -160,7 +228,7 @@
             </code>
             </remarks>
         </member>
-        <member name="M:Jellyfin.Plugin.CascadeLyrics.ScheduledTasks.DownloadLyricsTask.WordRegex">
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Services.KugouLyricsClient.WordRegex">
             <remarks>
             Pattern:<br/>
             <code>&lt;(\\d+),(\\d+),\\d+&gt;([^&lt;]*)</code><br/>
@@ -179,6 +247,22 @@
                 ○ Match a character other than '&lt;' atomically any number of times.<br/>
             </code>
             </remarks>
+        </member>
+        <member name="T:Jellyfin.Plugin.CascadeLyrics.Services.LyricsStatusStore">
+            <summary>
+            Persists the per-item Kugou/sidecar availability report to a single JSON file in the
+            plugin's data directory, so the status dashboard page can read the results of the last
+            scan without re-querying Kugou for every track on every page load.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Services.LyricsStatusStore.#ctor(MediaBrowser.Common.Configuration.IApplicationPaths)">
+            <summary>Initialises a new instance of <see cref="T:Jellyfin.Plugin.CascadeLyrics.Services.LyricsStatusStore"/>.</summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Services.LyricsStatusStore.Load">
+            <summary>Loads the last saved report, or an empty one if none exists yet.</summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.CascadeLyrics.Services.LyricsStatusStore.Save(System.Collections.Generic.Dictionary{System.Guid,Jellyfin.Plugin.CascadeLyrics.Configuration.LyricsStatusEntry})">
+            <summary>Overwrites the report with the given data.</summary>
         </member>
         <member name="T:System.Text.RegularExpressions.Generated.LineRegex_0">
             <summary>Custom <see cref="T:System.Text.RegularExpressions.Regex"/>-derived type for the LineRegex method.</summary>

@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "MUMXocYPSNQ=",
+  "dgSpecHash": "FR+SPJLkD8E=",
   "success": true,
-  "projectFilePath": "/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj",
+  "projectFilePath": "/Users/jonathan/VScode/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj",
   "expectedPackageFiles": [
     "/Users/jonathan/.nuget/packages/bitfaster.caching/2.5.4/bitfaster.caching.2.5.4.nupkg.sha512",
     "/Users/jonathan/.nuget/packages/diacritics/4.0.17/diacritics.4.0.17.nupkg.sha512",

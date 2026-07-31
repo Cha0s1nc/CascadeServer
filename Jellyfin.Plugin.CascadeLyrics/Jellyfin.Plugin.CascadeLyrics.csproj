@@ -20,4 +20,9 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.10" PrivateAssets="All" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Dashboard page for the "Cascade Lyrics" sidebar tab (Kugou coverage report). -->
+    <EmbeddedResource Include="Web\status.html" />
+  </ItemGroup>
+
 </Project>

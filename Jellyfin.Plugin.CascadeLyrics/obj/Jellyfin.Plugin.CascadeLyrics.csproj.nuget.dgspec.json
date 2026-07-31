@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj": {}
+    "/Users/jonathan/VScode/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj": {}
   },
   "projects": {
-    "/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj": {
+    "/Users/jonathan/VScode/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj",
+        "projectUniqueName": "/Users/jonathan/VScode/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj",
         "projectName": "Jellyfin.Plugin.CascadeLyrics",
-        "projectPath": "/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj",
+        "projectPath": "/Users/jonathan/VScode/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj",
         "packagesPath": "/Users/jonathan/.nuget/packages/",
-        "outputPath": "/Users/jonathan/VS code/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/obj/",
+        "outputPath": "/Users/jonathan/VScode/CascadeSLRC/Jellyfin.Plugin.CascadeLyrics/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/Users/jonathan/.nuget/NuGet/NuGet.Config"

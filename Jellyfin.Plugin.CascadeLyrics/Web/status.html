@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cascade Lyrics</title>
+</head>
+<body>
+    <div id="CascadeLyricsStatusPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input">
+        <div data-role="content">
+            <div class="content-primary">
+                <h1>Cascade Lyrics — Kugou Coverage</h1>
+                <p>Shows which tracks in your library have word-level karaoke lyrics available from Kugou, based on
+                   the last run of the <strong>Download Cascade Lyrics</strong> scheduled task. Tracks the task
+                   hasn't reached yet show as "Not checked" rather than "Missing".</p>
+
+                <div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap;margin:1em 0;">
+                    <span id="clSummary">Loading…</span>
+                    <button is="emby-button" type="button" class="raised" id="clRefreshBtn">Refresh</button>
+                    <button is="emby-button" type="button" class="raised button-submit" id="clCheckAllBtn">Check all</button>
+                    <label style="display:flex;align-items:center;gap:0.4em;">
+                        <input type="checkbox" is="emby-checkbox" id="clMissingOnly" />
+                        <span>Show missing only</span>
+                    </label>
+                    <input type="search" is="emby-input" id="clFilter" placeholder="Filter by song or artist" style="max-width:260px;" />
+                </div>
+
+                <table class="detailTable" style="width:100%;">
+                    <thead>
+                        <tr class="detailTableHeaderRow">
+                            <th class="detailTableHeaderCell">Song</th>
+                            <th class="detailTableHeaderCell">Artist</th>
+                            <th class="detailTableHeaderCell">Kugou</th>
+                            <th class="detailTableHeaderCell">Sidecar</th>
+                            <th class="detailTableHeaderCell">Last checked</th>
+                            <th class="detailTableHeaderCell"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="clRows"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+        (function () {
+            var page = document.querySelector('#CascadeLyricsStatusPage');
+            var allRows = [];
+
+            function statusLabel(row) {
+                if (!row.checkedAtAll) return 'Not checked';
+                return row.kugouAvailable ? 'Available' : 'Missing';
+            }
+
+            function sidecarLabel(row) {
+                var parts = [];
+                if (row.hasKaraoke) parts.push('.slrc');
+                if (row.hasSynced) parts.push('.lrc');
+                if (row.hasPlain) parts.push('.txt');
+                return parts.length ? parts.join(' · ') : '—';
+            }
+
+            function render() {
+                var missingOnly = page.querySelector('#clMissingOnly').checked;
+                var filter = page.querySelector('#clFilter').value.trim().toLowerCase();
+
+                var rows = allRows.filter(function (r) {
+                    if (missingOnly && (!r.checkedAtAll || r.kugouAvailable)) return false;
+                    if (filter && (r.name + ' ' + r.artist).toLowerCase().indexOf(filter) === -1) return false;
+                    return true;
+                });
+
+                var checked = allRows.filter(function (r) { return r.checkedAtAll; });
+                var available = checked.filter(function (r) { return r.kugouAvailable; });
+                page.querySelector('#clSummary').textContent =
+                    available.length + ' / ' + checked.length + ' checked tracks have Kugou karaoke lyrics' +
+                    (checked.length < allRows.length ? ' (' + (allRows.length - checked.length) + ' not checked yet)' : '');
+
+                var tbody = page.querySelector('#clRows');
+                tbody.innerHTML = '';
+                rows.forEach(function (r) {
+                    var tr = document.createElement('tr');
+                    tr.className = 'detailTableBodyRow';
+
+                    var statusColor = !r.checkedAtAll ? '#999' : (r.kugouAvailable ? '#4caf50' : '#e05252');
+
+                    tr.innerHTML =
+                        '<td class="detailTableBodyCell">' + escapeHtml(r.name) + '</td>' +
+                        '<td class="detailTableBodyCell">' + escapeHtml(r.artist) + '</td>' +
+                        '<td class="detailTableBodyCell" style="color:' + statusColor + ';font-weight:600;">' + statusLabel(r) + '</td>' +
+                        '<td class="detailTableBodyCell">' + sidecarLabel(r) + '</td>' +
+                        '<td class="detailTableBodyCell">' + (r.lastChecked ? new Date(r.lastChecked).toLocaleString() : '—') + '</td>' +
+                        '<td class="detailTableBodyCell"></td>';
+
+                    var btn = document.createElement('button');
+                    btn.setAttribute('is', 'emby-button');
+                    btn.className = 'raised';
+                    btn.textContent = 'Recheck';
+                    btn.addEventListener('click', function () { recheck(r.itemId, tr); });
+                    tr.lastElementChild.appendChild(btn);
+
+                    tbody.appendChild(tr);
+                });
+            }
+
+            function escapeHtml(s) {
+                var d = document.createElement('div');
+                d.textContent = s || '';
+                return d.innerHTML;
+            }
+
+            function load(silent) {
+                if (!silent) page.querySelector('#clSummary').textContent = 'Loading…';
+                ApiClient.getJSON(ApiClient.getUrl('CascadeLyrics/Status')).then(function (data) {
+                    allRows = data;
+                    render();
+                }).catch(function () {
+                    if (!silent) page.querySelector('#clSummary').textContent = 'Failed to load status.';
+                });
+            }
+
+            // "Check all" reuses Jellyfin's own scheduled task machinery — the "Download
+            // Cascade Lyrics" task — rather than a bespoke bulk endpoint, so progress/state
+            // tracking comes for free from the core ScheduledTasks API.
+            var CASCADE_TASK_KEY = 'CascadeLyricsDownload';
+            var checkAllTimer = null;
+
+            function stopCheckAllPolling() {
+                if (checkAllTimer) { clearInterval(checkAllTimer); checkAllTimer = null; }
+            }
+
+            function pollCheckAll(taskId, btn) {
+                stopCheckAllPolling();
+                checkAllTimer = setInterval(function () {
+                    ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks/' + taskId)).then(function (task) {
+                        if (task.State === 'Running' || task.State === 'Cancelling') {
+                            var pct = task.CurrentProgressPercentage;
+                            btn.textContent = 'Checking all… ' + (pct != null ? Math.round(pct) + '%' : '');
+                            load(true);
+                        } else {
+                            stopCheckAllPolling();
+                            btn.disabled = false;
+                            btn.textContent = 'Check all';
+                            load();
+                        }
+                    }).catch(function () {
+                        stopCheckAllPolling();
+                        btn.disabled = false;
+                        btn.textContent = 'Check all';
+                    });
+                }, 3000);
+            }
+
+            function checkAll() {
+                var btn = page.querySelector('#clCheckAllBtn');
+                btn.disabled = true;
+                btn.textContent = 'Starting…';
+                ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function (tasks) {
+                    var task = tasks.find(function (t) { return t.Key === CASCADE_TASK_KEY; });
+                    if (!task) throw new Error('task not found');
+                    return ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + task.Id) })
+                        .then(function () { pollCheckAll(task.Id, btn); });
+                }).catch(function () {
+                    btn.disabled = false;
+                    btn.textContent = 'Check all';
+                });
+            }
+
+            function recheck(itemId, tr) {
+                var btn = tr.querySelector('button');
+                btn.disabled = true;
+                btn.textContent = 'Checking…';
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('CascadeLyrics/Status/' + itemId + '/Recheck'),
+                    dataType: 'json'
+                }).then(function (updated) {
+                    var idx = allRows.findIndex(function (r) { return r.itemId === itemId; });
+                    if (idx !== -1) allRows[idx] = updated;
+                    render();
+                }).catch(function () {
+                    btn.disabled = false;
+                    btn.textContent = 'Retry';
+                });
+            }
+
+            page.addEventListener('viewshow', function () { load(); });
+            page.addEventListener('viewdestroy', stopCheckAllPolling);
+            page.querySelector('#clRefreshBtn').addEventListener('click', function () { load(); });
+            page.querySelector('#clCheckAllBtn').addEventListener('click', checkAll);
+            page.querySelector('#clMissingOnly').addEventListener('change', render);
+            page.querySelector('#clFilter').addEventListener('input', render);
+        })();
+        </script>
+    </div>
+</body>
+</html>
