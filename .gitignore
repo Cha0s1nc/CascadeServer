@@ -1,0 +1,10 @@
+# Build output. The release DLL is built by CI and attached to a GitHub
+# Release on tag push (.github/workflows/build.yml), so none of this needs
+# to be in the repo.
+bin/
+obj/
+publish/
+build/
+
+# macOS
+.DS_Store
