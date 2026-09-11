@@ -138,12 +138,28 @@ public class CascadeLyricsController : ControllerBase
         var isSynced = string.Equals(dto.Type, "synced", StringComparison.OrdinalIgnoreCase);
         var ext = isSynced ? ".lrc" : ".slrc";
         var sidecarPath = Path.ChangeExtension(item.Path, ext);
+        var savedPath = sidecarPath;
 
-        System.IO.File.WriteAllText(sidecarPath, dto.Lrc);
+        try
+        {
+            System.IO.File.WriteAllText(sidecarPath, dto.Lrc);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Media library is mounted read-only in some deployments (e.g. Jellyfin
+            // running in a container with the library bind-mounted ro). Fall back to
+            // the legacy data-dir location, which the GET endpoint already checks.
+            _logger.LogWarning(
+                ex, "Sidecar write failed at {Path}, falling back to legacy data dir", sidecarPath);
+
+            savedPath = isSynced ? LegacyLrcPath(itemId) : LegacySlrcPath(itemId);
+            Directory.CreateDirectory(Path.GetDirectoryName(savedPath)!);
+            System.IO.File.WriteAllText(savedPath, dto.Lrc);
+        }
 
         _logger.LogInformation(
             "Saved {Type} lyrics for {ItemId} at {Path} ({Length} chars)",
-            isSynced ? "synced" : "karaoke", itemId, sidecarPath, dto.Lrc.Length);
+            isSynced ? "synced" : "karaoke", itemId, savedPath, dto.Lrc.Length);
 
         return NoContent();
     }
