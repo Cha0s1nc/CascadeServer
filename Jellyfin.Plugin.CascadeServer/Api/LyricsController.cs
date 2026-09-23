@@ -1,7 +1,13 @@
 using System;
+using System.Net.Http;
 using System.Net.Mime;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Jellyfin.Plugin.CascadeServer.LyricFetch;
 using Jellyfin.Plugin.CascadeServer.LyricStore;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -29,18 +35,25 @@ namespace Jellyfin.Plugin.CascadeServer.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class LyricsController : ControllerBase
 {
+    // A live fetch is not tied to the request: Cascade gives up after 8s, and cancelling on
+    // disconnect would throw away a slow first fetch, cache nothing, and repeat on every play.
+    private static readonly TimeSpan LiveFetchBudget = TimeSpan.FromSeconds(45);
+
     private readonly ILibraryManager _libraryManager;
     private readonly IApplicationPaths _appPaths;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<LyricsController> _logger;
 
     /// <summary>Initialises a new instance of <see cref="LyricsController"/>.</summary>
     public LyricsController(
         ILibraryManager libraryManager,
         IApplicationPaths appPaths,
+        IHttpClientFactory httpClientFactory,
         ILogger<LyricsController> logger)
     {
         _libraryManager = libraryManager;
         _appPaths = appPaths;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -56,39 +69,73 @@ public class LyricsController : ControllerBase
     /// Gets lyrics for the specified audio item.
     ///
     /// Priority:
+    ///   0. SpicyLyrics, only when the client passes <c>syllable=true</c>, a key is set and
+    ///      the item has a Spotify id - returned raw, never stored as a sidecar
     ///   1. {audioFile}.slrc sidecar  - karaoke (word-level)
     ///   2. {audioFile}.lrc  sidecar  - synced  (line-level)
     ///   3. Legacy data-dir .slrc     - karaoke (backward compat)
     ///   4. Legacy data-dir .lrc      - synced  (backward compat)
+    ///   5. With sidecar writes disabled: the data-dir cache, fetching live from Kugou then
+    ///      LRCLIB on a miss
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
-    /// <response code="200">Returns <c>{ "lrc": "...", "type": "karaoke"|"synced" }</c>.</response>
+    /// <param name="syllable">
+    /// Set by a client that understands the SpicyLyrics response. Without it the slot is
+    /// skipped, so a client that only reads <c>lrc</c> never gets a body it cannot use.
+    /// </param>
+    /// <response code="200">
+    /// Returns <c>{ "lrc": "...", "type": "karaoke"|"synced" }</c>, or with
+    /// <c>syllable=true</c> possibly <c>{ "type": "syllable", "source": "spicylyrics", "spicy": {...} }</c>
+    /// where <c>spicy</c> is the SpicyLyrics response exactly as received.
+    /// </response>
     /// <response code="404">No lyrics found for this item.</response>
     [HttpGet]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public IActionResult GetLyrics([FromRoute] Guid itemId)
+    public async Task<IActionResult> GetLyrics([FromRoute] Guid itemId, [FromQuery] bool syllable = false)
     {
         var item = _libraryManager.GetItemById(itemId);
 
+        // 0. SpicyLyrics (opt-in, needs a key and a Spotify id; skipped otherwise)
+        if (syllable && item is not null && !string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey))
+        {
+            string? raw = null;
+            try
+            {
+                using var cts = new CancellationTokenSource(LiveFetchBudget);
+                using var client = LyricsFetcher.CreateHttpClient(_httpClientFactory);
+                raw = await new LyricsFetcher(_logger, _appPaths).TrySpicyAsync(item, client, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Out of time: fall through to the other sources.
+            }
+
+            if (raw is not null)
+            {
+                using var doc = JsonDocument.Parse(raw);
+                return Ok(new { type = "syllable", source = "spicylyrics", spicy = doc.RootElement.Clone() });
+            }
+        }
+
         if (item?.Path is not null)
         {
+            var files = Sidecars.For(item.Path);
+
             // 1. Sidecar .slrc - karaoke (word-level, highest priority)
-            var slrcSidecar = Path.ChangeExtension(item.Path, ".slrc");
-            if (System.IO.File.Exists(slrcSidecar))
+            if (System.IO.File.Exists(files.Slrc))
             {
-                var lrc = System.IO.File.ReadAllText(slrcSidecar);
-                _logger.LogDebug("Serving sidecar karaoke for {ItemId} from {Path}", itemId, slrcSidecar);
+                var lrc = System.IO.File.ReadAllText(files.Slrc);
+                _logger.LogDebug("Serving sidecar karaoke for {ItemId} from {Path}", itemId, files.Slrc);
                 return Ok(new { lrc, type = "karaoke" });
             }
 
             // 2. Sidecar .lrc - synced (line-level)
-            var lrcSidecar = Path.ChangeExtension(item.Path, ".lrc");
-            if (System.IO.File.Exists(lrcSidecar))
+            if (System.IO.File.Exists(files.Lrc))
             {
-                var lrc = System.IO.File.ReadAllText(lrcSidecar);
-                _logger.LogDebug("Serving sidecar synced for {ItemId} from {Path}", itemId, lrcSidecar);
+                var lrc = System.IO.File.ReadAllText(files.Lrc);
+                _logger.LogDebug("Serving sidecar synced for {ItemId} from {Path}", itemId, files.Lrc);
                 return Ok(new { lrc, type = "synced" });
             }
         }
@@ -109,6 +156,27 @@ public class LyricsController : ControllerBase
             var lrc = System.IO.File.ReadAllText(legacyLrc);
             _logger.LogDebug("Serving legacy synced for {ItemId}", itemId);
             return Ok(new { lrc, type = "synced" });
+        }
+
+        // 5. No files, and sidecar writes are off: serve from the data-dir cache, fetching live.
+        if (Plugin.Config.DisableSidecarWrites && item is Audio { Path: not null } audio)
+        {
+            CachedLyrics cached;
+            try
+            {
+                using var cts = new CancellationTokenSource(LiveFetchBudget);
+                using var client = LyricsFetcher.CreateHttpClient(_httpClientFactory);
+                (cached, _) = await new LyricsFetcher(_logger, _appPaths)
+                    .GetOrFetchCachedAsync(audio, client, force: false, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Live lyrics fetch for {ItemId} ran out of time", itemId);
+                return NotFound();
+            }
+
+            if (cached.Karaoke is not null) return Ok(new { lrc = cached.Karaoke, type = "karaoke" });
+            if (cached.Synced is not null) return Ok(new { lrc = cached.Synced, type = "synced" });
         }
 
         return NotFound();

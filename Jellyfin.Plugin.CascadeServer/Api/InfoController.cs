@@ -39,6 +39,10 @@ public class InfoController : ControllerBase
         "karaoke",         // word-level .slrc, not just line-level .lrc
     };
 
+    // Only while a SpicyLyrics key is set: GET ?syllable=true can then return a raw
+    // SpicyLyrics body (once Spotify ids resolve; see SpotifyIdLookup).
+    private const string Syllable = "syllable";
+
     /// <summary>
     /// Reports that the plugin is present, with its version and capabilities.
     /// </summary>
@@ -56,7 +60,9 @@ public class InfoController : ControllerBase
         {
             name = "Cascade Server",
             version = Plugin.Instance?.Version?.ToString() ?? "0.0.0.0",
-            capabilities = Capabilities,
+            capabilities = string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey)
+                ? Capabilities
+                : [.. Capabilities, Syllable],
         });
     }
 }

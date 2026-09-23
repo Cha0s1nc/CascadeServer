@@ -27,6 +27,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>Gets the singleton plugin instance.</summary>
     public static Plugin? Instance { get; private set; }
 
+    /// <summary>Gets the current settings, or the defaults before the plugin is loaded.</summary>
+    public static PluginConfiguration Config => Instance?.Configuration ?? new PluginConfiguration();
+
     /// <inheritdoc/>
     public override string Name => "Cascade Server";
 

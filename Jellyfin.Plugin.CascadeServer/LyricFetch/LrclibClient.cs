@@ -45,7 +45,9 @@ public class LrclibClient
 
             return (ReadString(doc, "syncedLyrics"), ReadString(doc, "plainLyrics"));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // An HttpClient timeout is also an OperationCanceledException; only a cancelled ct
+        // should escape, or one slow request aborts the whole scheduled task.
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             _logger.LogDebug(ex, "LRCLIB fetch failed for \"{Title}\"", title);
             return (null, null);

@@ -82,6 +82,7 @@ public class StatusController : ControllerBase
                     hasKaraoke = entry?.HasKaraoke ?? false,
                     hasSynced = entry?.HasSynced ?? false,
                     hasPlain = entry?.HasPlain ?? false,
+                    cached = entry?.Cached ?? false,
                     lastChecked = entry?.LastChecked,
                 };
             })
@@ -96,7 +97,8 @@ public class StatusController : ControllerBase
     /// Runs the same fetch the scheduled task does for a single item - every source is
     /// queried for whichever sidecars are still missing - and updates the cached report.
     /// Existing sidecars are left alone, so this will not re-download a track that already
-    /// has everything.
+    /// has everything. With sidecar writes disabled it refetches into the data-dir cache
+    /// even if a fresh entry is there, since an admin asked for it.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -110,11 +112,8 @@ public class StatusController : ControllerBase
         var item = _libraryManager.GetItemById(itemId) as Audio;
         if (item?.Path is null) return NotFound();
 
-        using var httpClient = _httpClientFactory.CreateClient();
-        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; Cascade/1.0)");
-        httpClient.Timeout = TimeSpan.FromSeconds(15);
-
-        var entry = (await new LyricsFetcher(_logger).EnsureAsync(item, httpClient, ct)).Entry;
+        using var httpClient = LyricsFetcher.CreateHttpClient(_httpClientFactory);
+        var entry = (await new LyricsFetcher(_logger, _appPaths).EnsureAsync(item, httpClient, force: true, ct)).Entry;
 
         var store = new LyricsStatusStore(_appPaths);
         var status = store.Load();
@@ -131,6 +130,7 @@ public class StatusController : ControllerBase
             hasKaraoke = entry.HasKaraoke,
             hasSynced = entry.HasSynced,
             hasPlain = entry.HasPlain,
+            cached = entry.Cached,
             lastChecked = entry.LastChecked,
         });
     }

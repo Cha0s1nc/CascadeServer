@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.CascadeServer.LyricFetch;
+using Jellyfin.Plugin.CascadeServer.LyricStore;
 using Jellyfin.Plugin.CascadeServer.Status;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities.Audio;
@@ -17,9 +18,9 @@ namespace Jellyfin.Plugin.CascadeServer.Tasks;
 
 /// <summary>
 /// Scheduled task that iterates all audio items in the library and downloads
-/// lyrics into sidecar files next to the audio file. Every source is queried for
-/// every track - see <see cref="LyricsFetcher"/> for the sidecar types and the
-/// no-overwrite rule.
+/// lyrics into sidecar files next to the audio file, or into the data-dir cache
+/// when sidecar writes are disabled. Every source is queried for every track -
+/// see <see cref="LyricsFetcher"/> for the sidecar types and the no-overwrite rule.
 ///
 /// Every item processed gets an entry recorded in the Kugou-availability report
 /// via <see cref="LyricsStatusStore"/>, which backs the Cascade Server
@@ -55,7 +56,8 @@ public class DownloadLyricsTask : IScheduledTask
     /// <inheritdoc/>
     public string Description =>
         "Downloads karaoke lyrics from Kugou (.slrc) and synced (.lrc) or plain (.txt) lyrics " +
-        "from LRCLIB as sidecar files next to each audio file. Both sources are checked for " +
+        "from LRCLIB as sidecar files next to each audio file, or into Cascade Server's data " +
+        "folder if sidecar writes are disabled in its settings. Both sources are checked for " +
         "every track. Existing sidecars are never overwritten.";
 
     /// <inheritdoc/>
@@ -94,11 +96,12 @@ public class DownloadLyricsTask : IScheduledTask
             return;
         }
 
-        using var httpClient = _httpClientFactory.CreateClient();
-        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; Cascade/1.0)");
-        httpClient.Timeout = TimeSpan.FromSeconds(15);
+        // Expired SpicyLyrics responses must go even if nothing new is cached.
+        new SpicyLyricsCache(_appPaths).Prune();
 
-        var fetcher     = new LyricsFetcher(_logger);
+        using var httpClient = LyricsFetcher.CreateHttpClient(_httpClientFactory);
+
+        var fetcher     = new LyricsFetcher(_logger, _appPaths);
         var statusStore = new LyricsStatusStore(_appPaths);
         var status      = statusStore.Load();
 
@@ -117,14 +120,14 @@ public class DownloadLyricsTask : IScheduledTask
 
                 try
                 {
-                    var result = await fetcher.EnsureAsync(item, httpClient, cancellationToken);
+                    var result = await fetcher.EnsureAsync(item, httpClient, force: false, cancellationToken);
                     status[item.Id] = result.Entry;
                     queriedNetwork = result.QueriedNetwork;
                     if (result.WroteKaraoke) savedKaraoke++;
                     if (result.WroteSynced) savedSynced++;
                     if (result.WrotePlain) savedPlain++;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
                 {
                     _logger.LogWarning(ex, "Failed to process lyrics for {Title}", item.Name);
                     queriedNetwork = true;

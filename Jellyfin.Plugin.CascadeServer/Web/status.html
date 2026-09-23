@@ -4,10 +4,37 @@
     <title>Cascade Server</title>
 </head>
 <body>
-    <div id="CascadeServerStatusPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input">
+    <div id="CascadeServerStatusPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
-                <h1>Cascade Server: lyrics coverage</h1>
+                <h1>Cascade Server</h1>
+
+                <!-- Jellyfin does not generate a settings form for plugins; this is it. -->
+                <form id="csSettingsForm" style="margin:1em 0 2.5em;">
+                    <h2>Settings</h2>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input is="emby-checkbox" type="checkbox" id="csDisableSidecarWrites" />
+                            <span>Don't write fetched lyrics next to media files</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            The scheduled task and Recheck keep what they fetch in Jellyfin's data folder instead of
+                            writing .slrc/.lrc/.txt files beside your audio, and Cascade gets lyrics fetched live the
+                            first time a track is played. Lyrics saved from Cascade's editor still go next to the media.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="password" id="csSpicyKey" label="SpicyLyrics secret key" autocomplete="off" />
+                        <div class="fieldDescription">
+                            Optional. A key starting with sl_sk_ from developers.spicylyrics.org. SpicyLyrics results are
+                            cached for at most 25 days and never written as files. Not used yet: tracks still need a
+                            Spotify id, which Cascade Server cannot look up yet.
+                        </div>
+                    </div>
+                    <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
+                </form>
+
+                <h2>Lyrics coverage</h2>
                 <p>Shows which tracks in your library have word-level karaoke lyrics available from Kugou, based on
                    the last run of the <strong>Download lyrics</strong> (Cascade Server) scheduled task. Tracks the task
                    hasn't reached yet show as "Not checked" rather than "Missing".</p>
@@ -29,7 +56,7 @@
                             <th class="detailTableHeaderCell">Song</th>
                             <th class="detailTableHeaderCell">Artist</th>
                             <th class="detailTableHeaderCell">Kugou</th>
-                            <th class="detailTableHeaderCell">Sidecar</th>
+                            <th class="detailTableHeaderCell">Stored</th>
                             <th class="detailTableHeaderCell">Last checked</th>
                             <th class="detailTableHeaderCell"></th>
                         </tr>
@@ -54,7 +81,8 @@
                 if (row.hasKaraoke) parts.push('.slrc');
                 if (row.hasSynced) parts.push('.lrc');
                 if (row.hasPlain) parts.push('.txt');
-                return parts.length ? parts.join(' · ') : '-';
+                if (!parts.length) return '-';
+                return parts.join(' · ') + (row.cached ? ' (data folder)' : '');
             }
 
             function render() {
@@ -181,7 +209,32 @@
                 });
             }
 
-            page.addEventListener('viewshow', function () { load(); });
+            // ── Settings ────────────────────────────────────────────────────────
+            var PLUGIN_ID = 'a8b9c0d1-e2f3-4a5b-6c7d-8e9f0a1b2c3d';
+
+            function loadSettings() {
+                ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+                    page.querySelector('#csDisableSidecarWrites').checked = !!config.DisableSidecarWrites;
+                    page.querySelector('#csSpicyKey').value = config.SpicyLyricsSecretKey || '';
+                });
+            }
+
+            page.querySelector('#csSettingsForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+                    config.DisableSidecarWrites = page.querySelector('#csDisableSidecarWrites').checked;
+                    config.SpicyLyricsSecretKey = page.querySelector('#csSpicyKey').value.trim();
+                    return ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
+                }).then(function (result) {
+                    Dashboard.processPluginConfigurationUpdateResult(result);
+                }).catch(function () {
+                    Dashboard.hideLoadingMsg();
+                });
+                return false;
+            });
+
+            page.addEventListener('viewshow', function () { loadSettings(); load(); });
             page.addEventListener('viewdestroy', stopCheckAllPolling);
             page.querySelector('#clRefreshBtn').addEventListener('click', function () { load(); });
             page.querySelector('#clCheckAllBtn').addEventListener('click', checkAll);
