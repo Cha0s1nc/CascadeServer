@@ -65,6 +65,10 @@ public partial class SpicyLyricsClient
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/lyrics/{spotifyTrackId}");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", secretKey.Trim());
+            // Not required (confirmed with SpicyLyrics, 2026-09-23), but it tells them which
+            // client a request came from, same identity LRCLIB gets.
+            request.Headers.UserAgent.Clear();
+            request.Headers.UserAgent.ParseAdd(LrclibClient.UserAgent);
 
             using var response = await client.SendAsync(request, ct);
             if (response.StatusCode != HttpStatusCode.OK)

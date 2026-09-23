@@ -12,7 +12,7 @@ public class LrclibClient
 {
     // LRCLIB asks callers to identify themselves rather than spoof a browser. Kugou keeps
     // the browser-ish UA set on the shared HttpClient.
-    private const string UserAgent = "CascadeServer/2.0.0 (https://github.com/Cha0s1nc/CascadeServer)";
+    internal const string UserAgent = "CascadeServer/2.0.0 (https://github.com/Cha0s1nc/CascadeServer)";
 
     private readonly ILogger _logger;
 
