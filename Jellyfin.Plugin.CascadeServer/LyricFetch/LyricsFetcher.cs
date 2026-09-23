@@ -161,24 +161,38 @@ public class LyricsFetcher
     /// </summary>
     public async Task<string?> TrySpicyAsync(BaseItem item, HttpClient client, CancellationToken ct)
     {
-        var key = Plugin.Config.SpicyLyricsSecretKey;
-        if (string.IsNullOrWhiteSpace(key)) return null;
-
         var spotifyId = SpotifyIdLookup.Find(item);
         if (!SpicyLyricsClient.IsValidTrackId(spotifyId)) return null;
+        var result = await TrySpicyByIdAsync(spotifyId!, client, respectRecentMiss: true, ct);
+        return result.Status == SpicyLyricsStatus.Hit ? result.RawJson : null;
+    }
 
-        if (_spicyCache.Get(spotifyId!) is { } cached) return cached;
-        if (SpicyLyricsCache.IsRecentMiss(spotifyId!)) return null;
+    /// <summary>
+    /// SpicyLyrics for a known Spotify track id, through the same 25-day cache. The admin
+    /// test route passes <paramref name="respectRecentMiss"/> false, so testing the same
+    /// track twice asks again instead of being told "missed a moment ago".
+    /// </summary>
+    public async Task<SpicyLyricsResult> TrySpicyByIdAsync(
+        string spotifyId, HttpClient client, bool respectRecentMiss, CancellationToken ct)
+    {
+        var key = Plugin.Config.SpicyLyricsSecretKey;
+        if (string.IsNullOrWhiteSpace(key)) return new(SpicyLyricsStatus.NotConfigured);
+        if (!SpicyLyricsClient.IsValidTrackId(spotifyId)) return new(SpicyLyricsStatus.Miss);
 
-        var result = await _spicy.FetchAsync(client, key, spotifyId!, ct);
+        if (_spicyCache.Get(spotifyId) is { } cached) return new(SpicyLyricsStatus.Hit, cached);
+        if (respectRecentMiss && SpicyLyricsCache.IsRecentMiss(spotifyId)) return new(SpicyLyricsStatus.Miss);
+
+        var result = await _spicy.FetchAsync(client, key, spotifyId, ct);
         if (result.Status == SpicyLyricsStatus.Hit && result.RawJson is not null)
         {
-            _spicyCache.Put(spotifyId!, result.RawJson);
-            return result.RawJson;
+            _spicyCache.Put(spotifyId, result.RawJson);
+        }
+        else if (result.Status == SpicyLyricsStatus.Miss)
+        {
+            SpicyLyricsCache.MarkMiss(spotifyId);
         }
 
-        if (result.Status == SpicyLyricsStatus.Miss) SpicyLyricsCache.MarkMiss(spotifyId!);
-        return null;
+        return result;
     }
 
     private async Task<(bool Karaoke, bool Synced, bool Plain)> WriteSidecarsAsync(

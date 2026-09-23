@@ -23,8 +23,11 @@ public enum SpicyLyricsStatus
     Hit,
 }
 
-/// <summary>A SpicyLyrics result; <c>RawJson</c> is set only on a hit.</summary>
-public record SpicyLyricsResult(SpicyLyricsStatus Status, string? RawJson = null);
+/// <summary>
+/// A SpicyLyrics result; <c>RawJson</c> is set only on a hit, <c>HttpStatus</c> when the API
+/// answered with something other than 200 (for the admin test route's diagnosis).
+/// </summary>
+public record SpicyLyricsResult(SpicyLyricsStatus Status, string? RawJson = null, int? HttpStatus = null);
 
 /// <summary>
 /// Fetches syllable-timed lyrics from the SpicyLyrics API
@@ -75,7 +78,7 @@ public partial class SpicyLyricsClient
             {
                 NoteRetryAfter(response.Headers.RetryAfter);
                 _logger.LogDebug("SpicyLyrics HTTP {Status} for {TrackId}", (int)response.StatusCode, spotifyTrackId);
-                return new(SpicyLyricsStatus.Miss);
+                return new(SpicyLyricsStatus.Miss, HttpStatus: (int)response.StatusCode);
             }
 
             var raw = await response.Content.ReadAsStringAsync(ct);
