@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
-using Jellyfin.Plugin.CascadeLyrics.Configuration;
+using Jellyfin.Plugin.CascadeServer.LyricStore;
 using MediaBrowser.Common.Configuration;
 
-namespace Jellyfin.Plugin.CascadeLyrics.Services;
+namespace Jellyfin.Plugin.CascadeServer.Status;
 
 /// <summary>
 /// Persists the per-item Kugou/sidecar availability report to a single JSON file in the
@@ -19,9 +19,7 @@ public class LyricsStatusStore
     /// <summary>Initialises a new instance of <see cref="LyricsStatusStore"/>.</summary>
     public LyricsStatusStore(IApplicationPaths appPaths)
     {
-        var dir = Path.Combine(appPaths.DataPath, "cascade-lyrics");
-        Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, "kugou-status.json");
+        _path = Path.Combine(DataDir.Root(appPaths), "kugou-status.json");
     }
 
     /// <summary>Loads the last saved report, or an empty one if none exists yet.</summary>

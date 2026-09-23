@@ -4,7 +4,8 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Jellyfin.Plugin.CascadeLyrics.Services;
+using Jellyfin.Plugin.CascadeServer.LyricFetch;
+using Jellyfin.Plugin.CascadeServer.Status;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
@@ -12,17 +13,17 @@ using Jellyfin.Data.Enums;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace Jellyfin.Plugin.CascadeLyrics.ScheduledTasks;
+namespace Jellyfin.Plugin.CascadeServer.Tasks;
 
 /// <summary>
 /// Scheduled task that iterates all audio items in the library and downloads
 /// lyrics into sidecar files next to the audio file. Every source is queried for
-/// every track — see <see cref="LyricsFetcher"/> for the sidecar types and the
+/// every track - see <see cref="LyricsFetcher"/> for the sidecar types and the
 /// no-overwrite rule.
 ///
 /// Every item processed gets an entry recorded in the Kugou-availability report
-/// via <see cref="LyricsStatusStore"/>, which backs the "Cascade Lyrics"
-/// dashboard tab.
+/// via <see cref="LyricsStatusStore"/>, which backs the Cascade Server
+/// dashboard page.
 /// </summary>
 public class DownloadLyricsTask : IScheduledTask
 {
@@ -45,9 +46,10 @@ public class DownloadLyricsTask : IScheduledTask
     }
 
     /// <inheritdoc/>
-    public string Name => "Download Cascade Lyrics";
+    public string Name => "Download lyrics";
 
     /// <inheritdoc/>
+    // Kept from the old plugin name: Web/status.html finds the task by this key.
     public string Key => "CascadeLyricsDownload";
 
     /// <inheritdoc/>
@@ -57,7 +59,7 @@ public class DownloadLyricsTask : IScheduledTask
         "every track. Existing sidecars are never overwritten.";
 
     /// <inheritdoc/>
-    public string Category => "Cascade Lyrics";
+    public string Category => "Cascade Server";
 
     /// <inheritdoc/>
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
@@ -135,7 +137,7 @@ public class DownloadLyricsTask : IScheduledTask
                 // large libraries instead of an empty table until the whole scan finishes.
                 if (completed % 25 == 0) statusStore.Save(status);
 
-                // Be polite to the APIs — but only when we actually called one. Tracks whose
+                // Be polite to the APIs - but only when we actually called one. Tracks whose
                 // sidecars are all present touch no network, so a repeat run over a populated
                 // library doesn't spend hours sleeping between no-ops.
                 if (queriedNetwork) await Task.Delay(300, cancellationToken);

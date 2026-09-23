@@ -18,11 +18,11 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: Restore
-        run: dotnet restore Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj
+        run: dotnet restore Jellyfin.Plugin.CascadeServer/Jellyfin.Plugin.CascadeServer.csproj
 
       - name: Build
         run: |
-          dotnet build Jellyfin.Plugin.CascadeLyrics/Jellyfin.Plugin.CascadeLyrics.csproj \
+          dotnet build Jellyfin.Plugin.CascadeServer/Jellyfin.Plugin.CascadeServer.csproj \
             --configuration Release \
             --no-restore \
             -o ./build
@@ -32,7 +32,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           cd build
-          zip "../Jellyfin.Plugin.CascadeLyrics_${VERSION}.zip" Jellyfin.Plugin.CascadeLyrics.dll
+          zip "../Jellyfin.Plugin.CascadeServer_${VERSION}.zip" Jellyfin.Plugin.CascadeServer.dll
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')

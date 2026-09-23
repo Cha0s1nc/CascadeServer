@@ -2,26 +2,26 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <AssemblyName>Jellyfin.Plugin.CascadeLyrics</AssemblyName>
-    <RootNamespace>Jellyfin.Plugin.CascadeLyrics</RootNamespace>
+    <AssemblyName>Jellyfin.Plugin.CascadeServer</AssemblyName>
+    <RootNamespace>Jellyfin.Plugin.CascadeServer</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <Version>1.0.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>2.0.0.0</Version>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <FileVersion>2.0.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Reference Jellyfin's controller package — PrivateAssets=All means it won't be
+    <!-- Reference Jellyfin's controller package - PrivateAssets=All means it won't be
          copied into the plugin zip; Jellyfin provides these at runtime. -->
     <PackageReference Include="Jellyfin.Controller" Version="10.11.0" PrivateAssets="All" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.10" PrivateAssets="All" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Dashboard page for the "Cascade Lyrics" sidebar tab (Kugou coverage report). -->
+    <!-- Dashboard page for the "Cascade Server" sidebar tab (lyrics status report). -->
     <EmbeddedResource Include="Web\status.html" />
   </ItemGroup>
 

@@ -5,8 +5,8 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
-using Jellyfin.Plugin.CascadeLyrics.Configuration;
-using Jellyfin.Plugin.CascadeLyrics.Services;
+using Jellyfin.Plugin.CascadeServer.LyricFetch;
+using Jellyfin.Plugin.CascadeServer.Status;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
@@ -15,30 +15,31 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
-namespace Jellyfin.Plugin.CascadeLyrics.Api;
+namespace Jellyfin.Plugin.CascadeServer.Api;
 
 /// <summary>
 /// Reports, per audio item, whether Kugou has karaoke lyrics available and whether a
-/// sidecar has already been downloaded. Backs the "Cascade Lyrics" dashboard page.
-/// Admin-only — this walks the whole library and can trigger live network calls.
+/// sidecar has already been downloaded. Backs the Cascade Server dashboard page.
+/// Admin-only - this walks the whole library and can trigger live network calls.
 /// </summary>
 [ApiController]
-[Route("CascadeLyrics/Status")]
+[Route("CascadeServer/Status")]
+[Route("CascadeLyrics/Status")] // Old plugin name. Drop a couple of releases after 2.0.0.0.
 [Authorize(Policy = "RequiresElevation")]
 [Produces(MediaTypeNames.Application.Json)]
-public class CascadeLyricsStatusController : ControllerBase
+public class StatusController : ControllerBase
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IApplicationPaths _appPaths;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILogger<CascadeLyricsStatusController> _logger;
+    private readonly ILogger<StatusController> _logger;
 
-    /// <summary>Initialises a new instance of <see cref="CascadeLyricsStatusController"/>.</summary>
-    public CascadeLyricsStatusController(
+    /// <summary>Initialises a new instance of <see cref="StatusController"/>.</summary>
+    public StatusController(
         ILibraryManager libraryManager,
         IApplicationPaths appPaths,
         IHttpClientFactory httpClientFactory,
-        ILogger<CascadeLyricsStatusController> logger)
+        ILogger<StatusController> logger)
     {
         _libraryManager = libraryManager;
         _appPaths = appPaths;
@@ -48,7 +49,7 @@ public class CascadeLyricsStatusController : ControllerBase
 
     /// <summary>
     /// Gets the last-known Kugou/sidecar status for every audio item in the library, from the
-    /// report the scheduled "Download Cascade Lyrics" task last wrote. Tracks it hasn't reached
+    /// report the scheduled "Download lyrics" task last wrote. Tracks it hasn't reached
     /// yet are reported as unchecked rather than missing.
     /// </summary>
     /// <response code="200">Returns the status rows.</response>
@@ -92,8 +93,8 @@ public class CascadeLyricsStatusController : ControllerBase
     }
 
     /// <summary>
-    /// Runs the same fetch the scheduled task does for a single item — every source is
-    /// queried for whichever sidecars are still missing — and updates the cached report.
+    /// Runs the same fetch the scheduled task does for a single item - every source is
+    /// queried for whichever sidecars are still missing - and updates the cached report.
     /// Existing sidecars are left alone, so this will not re-download a track that already
     /// has everything.
     /// </summary>

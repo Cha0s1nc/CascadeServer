@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace Jellyfin.Plugin.CascadeLyrics.Services;
+namespace Jellyfin.Plugin.CascadeServer.LyricFetch;
 
 /// <summary>
 /// Fetches word-level karaoke lyrics from Kugou (KRC format) and converts them to Enhanced
@@ -29,7 +29,7 @@ public partial class KugouLyricsClient
     }
 
     /// <summary>Maximum number of search candidates to try before giving up. Kugou often lists
-    /// a mix of karaoke (KRC) and plain-LRC-only entries under the same search hit — the top
+    /// a mix of karaoke (KRC) and plain-LRC-only entries under the same search hit - the top
     /// result isn't guaranteed to have word-level content, so we fall through the list.</summary>
     private const int MaxCandidatesToTry = 5;
 

@@ -1,6 +1,6 @@
 using MediaBrowser.Model.Plugins;
 
-namespace Jellyfin.Plugin.CascadeLyrics.Configuration;
+namespace Jellyfin.Plugin.CascadeServer.Configuration;
 
 /// <summary>Plugin configuration (extend as needed).</summary>
 public class PluginConfiguration : BasePluginConfiguration

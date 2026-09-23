@@ -1,15 +1,15 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Cascade Lyrics</title>
+    <title>Cascade Server</title>
 </head>
 <body>
-    <div id="CascadeLyricsStatusPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input">
+    <div id="CascadeServerStatusPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input">
         <div data-role="content">
             <div class="content-primary">
-                <h1>Cascade Lyrics — Kugou Coverage</h1>
+                <h1>Cascade Server: lyrics coverage</h1>
                 <p>Shows which tracks in your library have word-level karaoke lyrics available from Kugou, based on
-                   the last run of the <strong>Download Cascade Lyrics</strong> scheduled task. Tracks the task
+                   the last run of the <strong>Download lyrics</strong> (Cascade Server) scheduled task. Tracks the task
                    hasn't reached yet show as "Not checked" rather than "Missing".</p>
 
                 <div style="display:flex;align-items:center;gap:1em;flex-wrap:wrap;margin:1em 0;">
@@ -41,7 +41,7 @@
 
         <script type="text/javascript">
         (function () {
-            var page = document.querySelector('#CascadeLyricsStatusPage');
+            var page = document.querySelector('#CascadeServerStatusPage');
             var allRows = [];
 
             function statusLabel(row) {
@@ -54,7 +54,7 @@
                 if (row.hasKaraoke) parts.push('.slrc');
                 if (row.hasSynced) parts.push('.lrc');
                 if (row.hasPlain) parts.push('.txt');
-                return parts.length ? parts.join(' · ') : '—';
+                return parts.length ? parts.join(' · ') : '-';
             }
 
             function render() {
@@ -86,7 +86,7 @@
                         '<td class="detailTableBodyCell">' + escapeHtml(r.artist) + '</td>' +
                         '<td class="detailTableBodyCell" style="color:' + statusColor + ';font-weight:600;">' + statusLabel(r) + '</td>' +
                         '<td class="detailTableBodyCell">' + sidecarLabel(r) + '</td>' +
-                        '<td class="detailTableBodyCell">' + (r.lastChecked ? new Date(r.lastChecked).toLocaleString() : '—') + '</td>' +
+                        '<td class="detailTableBodyCell">' + (r.lastChecked ? new Date(r.lastChecked).toLocaleString() : '-') + '</td>' +
                         '<td class="detailTableBodyCell"></td>';
 
                     var btn = document.createElement('button');
@@ -108,7 +108,7 @@
 
             function load(silent) {
                 if (!silent) page.querySelector('#clSummary').textContent = 'Loading…';
-                ApiClient.getJSON(ApiClient.getUrl('CascadeLyrics/Status')).then(function (data) {
+                ApiClient.getJSON(ApiClient.getUrl('CascadeServer/Status')).then(function (data) {
                     allRows = data;
                     render();
                 }).catch(function () {
@@ -116,8 +116,8 @@
                 });
             }
 
-            // "Check all" reuses Jellyfin's own scheduled task machinery — the "Download
-            // Cascade Lyrics" task — rather than a bespoke bulk endpoint, so progress/state
+            // "Check all" reuses Jellyfin's own scheduled task machinery - the "Download
+            // lyrics" task - rather than a bespoke bulk endpoint, so progress/state
             // tracking comes for free from the core ScheduledTasks API.
             var CASCADE_TASK_KEY = 'CascadeLyricsDownload';
             var checkAllTimer = null;
@@ -169,7 +169,7 @@
                 btn.textContent = 'Checking…';
                 ApiClient.ajax({
                     type: 'POST',
-                    url: ApiClient.getUrl('CascadeLyrics/Status/' + itemId + '/Recheck'),
+                    url: ApiClient.getUrl('CascadeServer/Status/' + itemId + '/Recheck'),
                     dataType: 'json'
                 }).then(function (updated) {
                     var idx = allRows.findIndex(function (r) { return r.itemId === itemId; });

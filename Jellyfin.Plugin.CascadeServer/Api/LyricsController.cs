@@ -1,5 +1,6 @@
 using System;
 using System.Net.Mime;
+using Jellyfin.Plugin.CascadeServer.LyricStore;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
@@ -7,14 +8,14 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
-namespace Jellyfin.Plugin.CascadeLyrics.Api;
+namespace Jellyfin.Plugin.CascadeServer.Api;
 
 /// <summary>
 /// Provides GET / POST / DELETE endpoints for enhanced karaoke lyrics.
 ///
 /// Lyrics are stored as sidecar files next to the audio file:
-///   {audioFile}.slrc  — karaoke (word-level Enhanced LRC)
-///   {audioFile}.lrc   — synced (line-level LRC)
+///   {audioFile}.slrc  - karaoke (word-level Enhanced LRC)
+///   {audioFile}.lrc   - synced (line-level LRC)
 ///
 /// Legacy data-dir files ({JellyfinData}/data/cascade-lyrics/{itemId}.*) are
 /// read as a fallback so existing installs keep working, but new writes always
@@ -23,19 +24,20 @@ namespace Jellyfin.Plugin.CascadeLyrics.Api;
 /// Any authenticated Jellyfin user can read and write lyrics.
 /// </summary>
 [ApiController]
-[Route("Audio/{itemId}/CascadeLyrics")]
+[Route("CascadeServer/Lyrics/{itemId}")]
+[Route("Audio/{itemId}/CascadeLyrics")] // Old plugin name. Drop a couple of releases after 2.0.0.0.
 [Produces(MediaTypeNames.Application.Json)]
-public class CascadeLyricsController : ControllerBase
+public class LyricsController : ControllerBase
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IApplicationPaths _appPaths;
-    private readonly ILogger<CascadeLyricsController> _logger;
+    private readonly ILogger<LyricsController> _logger;
 
-    /// <summary>Initialises a new instance of <see cref="CascadeLyricsController"/>.</summary>
-    public CascadeLyricsController(
+    /// <summary>Initialises a new instance of <see cref="LyricsController"/>.</summary>
+    public LyricsController(
         ILibraryManager libraryManager,
         IApplicationPaths appPaths,
-        ILogger<CascadeLyricsController> logger)
+        ILogger<LyricsController> logger)
     {
         _libraryManager = libraryManager;
         _appPaths = appPaths;
@@ -44,11 +46,9 @@ public class CascadeLyricsController : ControllerBase
 
     // ── Legacy data-dir helpers (read-only fallback) ──────────────────────────
 
-    private string LegacySlrcPath(Guid itemId)
-        => Path.Combine(_appPaths.DataPath, "cascade-lyrics", $"{itemId:N}.slrc");
+    private string LegacySlrcPath(Guid itemId) => DataDir.LyricsPath(_appPaths, itemId, ".slrc");
 
-    private string LegacyLrcPath(Guid itemId)
-        => Path.Combine(_appPaths.DataPath, "cascade-lyrics", $"{itemId:N}.lrc");
+    private string LegacyLrcPath(Guid itemId) => DataDir.LyricsPath(_appPaths, itemId, ".lrc");
 
     // ── Endpoints ─────────────────────────────────────────────────────────────
 
@@ -56,10 +56,10 @@ public class CascadeLyricsController : ControllerBase
     /// Gets lyrics for the specified audio item.
     ///
     /// Priority:
-    ///   1. {audioFile}.slrc sidecar  — karaoke (word-level)
-    ///   2. {audioFile}.lrc  sidecar  — synced  (line-level)
-    ///   3. Legacy data-dir .slrc     — karaoke (backward compat)
-    ///   4. Legacy data-dir .lrc      — synced  (backward compat)
+    ///   1. {audioFile}.slrc sidecar  - karaoke (word-level)
+    ///   2. {audioFile}.lrc  sidecar  - synced  (line-level)
+    ///   3. Legacy data-dir .slrc     - karaoke (backward compat)
+    ///   4. Legacy data-dir .lrc      - synced  (backward compat)
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
     /// <response code="200">Returns <c>{ "lrc": "...", "type": "karaoke"|"synced" }</c>.</response>
@@ -74,7 +74,7 @@ public class CascadeLyricsController : ControllerBase
 
         if (item?.Path is not null)
         {
-            // 1. Sidecar .slrc — karaoke (word-level, highest priority)
+            // 1. Sidecar .slrc - karaoke (word-level, highest priority)
             var slrcSidecar = Path.ChangeExtension(item.Path, ".slrc");
             if (System.IO.File.Exists(slrcSidecar))
             {
@@ -83,7 +83,7 @@ public class CascadeLyricsController : ControllerBase
                 return Ok(new { lrc, type = "karaoke" });
             }
 
-            // 2. Sidecar .lrc — synced (line-level)
+            // 2. Sidecar .lrc - synced (line-level)
             var lrcSidecar = Path.ChangeExtension(item.Path, ".lrc");
             if (System.IO.File.Exists(lrcSidecar))
             {
@@ -116,7 +116,7 @@ public class CascadeLyricsController : ControllerBase
 
     /// <summary>
     /// Saves lyrics for the specified audio item as a sidecar file.
-    /// Any authenticated user can save lyrics — they are shared server-wide.
+    /// Any authenticated user can save lyrics - they are shared server-wide.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
     /// <param name="dto">The LRC content and type to store.</param>

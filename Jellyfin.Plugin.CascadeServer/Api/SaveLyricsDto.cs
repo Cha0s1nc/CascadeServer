@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace Jellyfin.Plugin.CascadeLyrics.Api;
+namespace Jellyfin.Plugin.CascadeServer.Api;
 
 /// <summary>Request body for saving lyrics.</summary>
 public class SaveLyricsDto

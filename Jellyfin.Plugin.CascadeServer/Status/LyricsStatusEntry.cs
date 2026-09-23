@@ -1,6 +1,6 @@
 using System;
 
-namespace Jellyfin.Plugin.CascadeLyrics.Configuration;
+namespace Jellyfin.Plugin.CascadeServer.Status;
 
 /// <summary>Cached result of the last lyrics-availability check for one audio item.</summary>
 public class LyricsStatusEntry

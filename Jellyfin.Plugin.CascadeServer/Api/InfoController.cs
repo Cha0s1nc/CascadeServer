@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Jellyfin.Plugin.CascadeLyrics.Api;
+namespace Jellyfin.Plugin.CascadeServer.Api;
 
 /// <summary>
 /// Tells a client whether this plugin is installed, and what it can do.
@@ -22,9 +22,10 @@ namespace Jellyfin.Plugin.CascadeLyrics.Api;
 /// reason to tell an unauthenticated scanner what is installed.
 /// </summary>
 [ApiController]
-[Route("CascadeLyrics/Info")]
+[Route("CascadeServer/Info")]
+[Route("CascadeLyrics/Info")] // Old plugin name. Drop a couple of releases after 2.0.0.0.
 [Produces(MediaTypeNames.Application.Json)]
-public class CascadeLyricsInfoController : ControllerBase
+public class InfoController : ControllerBase
 {
     /// <summary>
     /// What this plugin build supports, for a client that has to work against
@@ -33,7 +34,7 @@ public class CascadeLyricsInfoController : ControllerBase
     /// </summary>
     private static readonly string[] Capabilities =
     {
-        "lyrics-read",     // GET  /Audio/{itemId}/CascadeLyrics
+        "lyrics-read",     // GET  /CascadeServer/Lyrics/{itemId}
         "lyrics-write",    // POST and DELETE on the same route
         "karaoke",         // word-level .slrc, not just line-level .lrc
     };
@@ -53,7 +54,7 @@ public class CascadeLyricsInfoController : ControllerBase
     {
         return Ok(new
         {
-            name = "Cascade Lyrics",
+            name = "Cascade Server",
             version = Plugin.Instance?.Version?.ToString() ?? "0.0.0.0",
             capabilities = Capabilities,
         });
