@@ -1,5 +1,15 @@
 name: Build & Release
 
+# Pull requests: build both variants (Jellyfin 10.11 and Jellyfin 12).
+# A tag vX.Y.Z (matching <PluginVersion> in the .csproj): build both, publish a
+# GitHub release with both zips, and add both to manifest.json on main, which is
+# the plugin repository URL server owners add:
+#   https://raw.githubusercontent.com/Cha0s1nc/CascadeServer/main/manifest.json
+#
+# To release: bump <PluginVersion>, commit, then
+#   git tag -a v1.0.1 -m "What changed"   (the message becomes the changelog)
+#   git push origin main v1.0.1
+
 on:
   push:
     tags: ["v*"]
@@ -9,35 +19,95 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - jellyfin: "10.11"
+            dotnet: "9.0.x"
+            part: "10"
+          - jellyfin: "12"
+            dotnet: "10.0.x"
+            part: "12"
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: ${{ matrix.dotnet }}
 
-      - name: Restore
-        run: dotnet restore Jellyfin.Plugin.CascadeServer/Jellyfin.Plugin.CascadeServer.csproj
+      - name: Read the release version
+        id: version
+        run: |
+          plugin=$(grep -oP '(?<=<PluginVersion>)[^<]+' Jellyfin.Plugin.CascadeServer/Jellyfin.Plugin.CascadeServer.csproj)
+          echo "plugin=$plugin" >> "$GITHUB_OUTPUT"
+          echo "full=$plugin.${{ matrix.part }}" >> "$GITHUB_OUTPUT"
+
+      - name: The tag must match the project version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if [ "${GITHUB_REF_NAME#v}" != "${{ steps.version.outputs.plugin }}" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match <PluginVersion> ${{ steps.version.outputs.plugin }}"
+            exit 1
+          fi
 
       - name: Build
         run: |
           dotnet build Jellyfin.Plugin.CascadeServer/Jellyfin.Plugin.CascadeServer.csproj \
             --configuration Release \
-            --no-restore \
+            -p:JellyfinTarget=${{ matrix.jellyfin }} \
             -o ./build
 
       - name: Package
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           cd build
-          zip "../Jellyfin.Plugin.CascadeServer_${VERSION}.zip" Jellyfin.Plugin.CascadeServer.dll
+          zip "../Jellyfin.Plugin.CascadeServer_${{ steps.version.outputs.full }}.zip" Jellyfin.Plugin.CascadeServer.dll
 
-      - name: Release
+      - uses: actions/upload-artifact@v4
         if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: zip-${{ matrix.part }}
+          path: "*.zip"
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # main, not the tag: the manifest change is committed there.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Release notes from the tag message
+        run: git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents)' > notes.md
+
+      # Published, not a draft: Jellyfin downloads from these URLs, and a draft's
+      # files are not public.
+      - name: Create the GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: "*.zip"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: dist/*.zip
+          body_path: notes.md
+
+      - name: Add both builds to manifest.json
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          base="https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME"
+          python3 scripts/manifest.py add manifest.json "$v.10" 10.11.0.0 \
+            "$base/Jellyfin.Plugin.CascadeServer_$v.10.zip" "dist/Jellyfin.Plugin.CascadeServer_$v.10.zip" notes.md
+          python3 scripts/manifest.py add manifest.json "$v.12" 12.0.0.0 \
+            "$base/Jellyfin.Plugin.CascadeServer_$v.12.zip" "dist/Jellyfin.Plugin.CascadeServer_$v.12.zip" notes.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Add $GITHUB_REF_NAME to manifest.json"
+          git push origin main

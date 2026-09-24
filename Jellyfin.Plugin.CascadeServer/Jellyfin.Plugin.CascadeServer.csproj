@@ -1,23 +1,52 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- One codebase, two builds: Jellyfin 10.11 (.NET 9) and Jellyfin 12 (.NET 10).
+       Pick with -p:JellyfinTarget=10.11 (the default) or -p:JellyfinTarget=12; CI
+       builds both on a release tag (.github/workflows/build.yml).
+
+       The version's last part says which Jellyfin a build is for: 1.0.0.10 is the
+       10.11 build of release 1.0.0, 1.0.0.12 the Jellyfin 12 build. Jellyfin offers
+       a server every version whose targetAbi is at or below its own and installs
+       the highest, so on a 12 server the .12 build must outrank the .10 one. -->
   <PropertyGroup>
+    <JellyfinTarget Condition="'$(JellyfinTarget)' == ''">10.11</JellyfinTarget>
+    <!-- The release number. A release tag must match it: v1.0.0 for 1.0.0. -->
+    <PluginVersion>1.0.0</PluginVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(JellyfinTarget)' == '10.11'">
     <TargetFramework>net9.0</TargetFramework>
+    <JellyfinPackageVersion>10.11.0</JellyfinPackageVersion>
+    <LoggingPackageVersion>9.0.10</LoggingPackageVersion>
+    <JellyfinVersionPart>10</JellyfinVersionPart>
+  </PropertyGroup>
+
+  <!-- Built against 12.0, not 12.1, so it also loads on 12.0 servers. -->
+  <PropertyGroup Condition="'$(JellyfinTarget)' == '12'">
+    <TargetFramework>net10.0</TargetFramework>
+    <JellyfinPackageVersion>12.0.0</JellyfinPackageVersion>
+    <LoggingPackageVersion>10.0.11</LoggingPackageVersion>
+    <JellyfinVersionPart>12</JellyfinVersionPart>
+    <DefineConstants>$(DefineConstants);JELLYFIN12</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <AssemblyName>Jellyfin.Plugin.CascadeServer</AssemblyName>
     <RootNamespace>Jellyfin.Plugin.CascadeServer</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <Version>2.0.0.0</Version>
-    <AssemblyVersion>2.0.0.0</AssemblyVersion>
-    <FileVersion>2.0.0.0</FileVersion>
+    <Version>$(PluginVersion).$(JellyfinVersionPart)</Version>
+    <AssemblyVersion>$(PluginVersion).$(JellyfinVersionPart)</AssemblyVersion>
+    <FileVersion>$(PluginVersion).$(JellyfinVersionPart)</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Reference Jellyfin's controller package - PrivateAssets=All means it won't be
          copied into the plugin zip; Jellyfin provides these at runtime. -->
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.0" PrivateAssets="All" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.10" PrivateAssets="All" />
+    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinPackageVersion)" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="$(LoggingPackageVersion)" PrivateAssets="All" />
   </ItemGroup>
 
   <ItemGroup>
