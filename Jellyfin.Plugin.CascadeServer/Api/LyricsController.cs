@@ -83,6 +83,11 @@ public class LyricsController : ControllerBase
     /// Set by a client that understands the SpicyLyrics response. Without it the slot is
     /// skipped, so a client that only reads <c>lrc</c> never gets a body it cannot use.
     /// </param>
+    /// <param name="spicyOnly">
+    /// With <c>syllable=true</c>: answer from SpicyLyrics or not at all. A client that runs
+    /// its own waterfall (Cascade outside server-only mode) discards the plugin's files, so
+    /// reading them, or fetching Kugou and LRCLIB live for them, was wasted on every miss.
+    /// </param>
     /// <response code="200">
     /// Returns <c>{ "lrc": "...", "type": "karaoke"|"synced" }</c>, or with
     /// <c>syllable=true</c> possibly <c>{ "type": "syllable", "source": "spicylyrics", "spicy": {...} }</c>
@@ -93,7 +98,7 @@ public class LyricsController : ControllerBase
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetLyrics([FromRoute] Guid itemId, [FromQuery] bool syllable = false)
+    public async Task<IActionResult> GetLyrics([FromRoute] Guid itemId, [FromQuery] bool syllable = false, [FromQuery] bool spicyOnly = false)
     {
         var item = _libraryManager.GetItemById(itemId);
 
@@ -118,6 +123,8 @@ public class LyricsController : ControllerBase
                 return Ok(new { type = "syllable", source = "spicylyrics", spicy = doc.RootElement.Clone() });
             }
         }
+
+        if (syllable && spicyOnly) return NotFound();
 
         if (item?.Path is not null)
         {
