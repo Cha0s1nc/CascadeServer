@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.CascadeServer.LyricStore;
@@ -40,6 +41,7 @@ public class LyricsFetcher
     private readonly SpicyLyricsClient _spicy;
     private readonly LiveLyricsCache _cache;
     private readonly SpicyLyricsCache _spicyCache;
+    private readonly IApplicationPaths _appPaths;
 
     /// <summary>Initialises a new instance of <see cref="LyricsFetcher"/>.</summary>
     public LyricsFetcher(ILogger logger, IApplicationPaths appPaths)
@@ -50,6 +52,7 @@ public class LyricsFetcher
         _spicy = new SpicyLyricsClient(logger);
         _cache = new LiveLyricsCache(appPaths);
         _spicyCache = new SpicyLyricsCache(appPaths);
+        _appPaths = appPaths;
     }
 
     /// <summary>What one fetch found. <c>QueriedNetwork</c> is false when nothing was asked.</summary>
@@ -155,16 +158,55 @@ public class LyricsFetcher
             wroteKaraoke, wroteSynced, wrotePlain, fetched.QueriedNetwork);
     }
 
+    /// <summary>How many of a song's candidate Spotify ids are tried against SpicyLyrics.</summary>
+    private const int MaxSpicyCandidates = 3;
+
     /// <summary>
-    /// SpicyLyrics, when a key is set and the item has a Spotify id: the cached raw response,
-    /// or a fresh one (then cached for 25 days). <c>null</c> otherwise, including on any miss.
+    /// SpicyLyrics, when a key is set and the item resolves to Spotify ids (see
+    /// <see cref="SpotifyIdLookup"/>): the cached raw response, or a fresh one (then cached
+    /// for 25 days). A song has one id per release, so up to <see cref="MaxSpicyCandidates"/>
+    /// are tried and the first whose sync fits this file's length wins; a sync made for a
+    /// longer release drifts (a 190.7s sync against a 186.6s file ran 8s late by the end).
+    /// A hand-linked id is taken as it is. <c>null</c> otherwise, including on any miss.
     /// </summary>
     public async Task<string?> TrySpicyAsync(BaseItem item, HttpClient client, CancellationToken ct)
     {
-        var spotifyId = SpotifyIdLookup.Find(item);
-        if (!SpicyLyricsClient.IsValidTrackId(spotifyId)) return null;
-        var result = await TrySpicyByIdAsync(spotifyId!, client, respectRecentMiss: true, ct);
-        return result.Status == SpicyLyricsStatus.Hit ? result.RawJson : null;
+        if (item is not Audio audio || string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey)) return null;
+        var (ids, manual) = await SpotifyIdLookup.FindAsync(audio, client, _appPaths, ct);
+        foreach (var id in ids.Take(MaxSpicyCandidates))
+        {
+            var result = await TrySpicyByIdAsync(id, client, respectRecentMiss: true, ct);
+            if (result.Status != SpicyLyricsStatus.Hit || result.RawJson is null) continue;
+            if (!manual && !SpicyFitsTrack(result.RawJson, audio)) continue;
+            SpotifyIdLookup.Prefer(_appPaths, audio.Id, id);
+            return result.RawJson;
+        }
+
+        return null;
+    }
+
+    /// <summary>Slack for rounding and trailing silence, as in Cascade's spicyFitsTrack.</summary>
+    private const double SpicyEndToleranceSec = 1.5;
+
+    /// <summary>
+    /// Whether a sync can belong to this file: vocals cannot end after the track does. Only
+    /// catches a longer release; with no EndTime or no known length it passes. Same rule as
+    /// the desktop's spicyFitsTrack (src/core/spicy-lyrics.ts).
+    /// </summary>
+    private static bool SpicyFitsTrack(string rawJson, Audio item)
+    {
+        if (item.RunTimeTicks is not > 0) return true;
+        try
+        {
+            using var doc = JsonDocument.Parse(rawJson);
+            var body = doc.RootElement.TryGetProperty("Body", out var b) && b.ValueKind == JsonValueKind.Object ? b : doc.RootElement;
+            if (!body.TryGetProperty("EndTime", out var end) || end.ValueKind != JsonValueKind.Number) return true;
+            return end.GetDouble() <= TimeSpan.FromTicks(item.RunTimeTicks.Value).TotalSeconds + SpicyEndToleranceSec;
+        }
+        catch (JsonException)
+        {
+            return true;
+        }
     }
 
     /// <summary>

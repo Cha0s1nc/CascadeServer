@@ -40,8 +40,10 @@ public class InfoController : ControllerBase
     };
 
     // Only while a SpicyLyrics key is set: GET ?syllable=true can then return a raw
-    // SpicyLyrics body (once Spotify ids resolve; see SpotifyIdLookup).
+    // SpicyLyrics body (Spotify ids resolve through SpotifyIdLookup), and
+    // /CascadeServer/SpotifyId/{itemId} links a song to a Spotify track by hand.
     private const string Syllable = "syllable";
+    private const string SpotifyLink = "spotify-link";
 
     /// <summary>
     /// Reports that the plugin is present, with its version and capabilities.
@@ -62,7 +64,7 @@ public class InfoController : ControllerBase
             version = Plugin.Instance?.Version?.ToString() ?? "0.0.0.0",
             capabilities = string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey)
                 ? Capabilities
-                : [.. Capabilities, Syllable],
+                : [.. Capabilities, Syllable, SpotifyLink],
         });
     }
 }

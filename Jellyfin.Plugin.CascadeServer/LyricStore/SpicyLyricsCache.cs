@@ -67,6 +67,9 @@ public class SpicyLyricsCache
     /// <summary>Records that SpicyLyrics had nothing for this track.</summary>
     public static void MarkMiss(string spotifyId) => Misses[spotifyId] = DateTime.UtcNow;
 
+    /// <summary>Forgets a miss, so a track a user just linked is asked for right away.</summary>
+    public static void ClearMiss(string spotifyId) => Misses.TryRemove(spotifyId, out _);
+
     /// <summary>Gets a value indicating whether this track missed recently.</summary>
     public static bool IsRecentMiss(string spotifyId)
         => Misses.TryGetValue(spotifyId, out var at) && DateTime.UtcNow - at < MissTtl;
