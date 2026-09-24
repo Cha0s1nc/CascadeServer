@@ -1,4 +1,6 @@
 using System.Net.Mime;
+using System.Threading.Tasks;
+using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -49,22 +51,25 @@ public class InfoController : ControllerBase
     /// Reports that the plugin is present, with its version and capabilities.
     /// </summary>
     /// <response code="200">
-    /// Returns <c>{ "name": "...", "version": "...", "capabilities": [...] }</c>.
+    /// Returns <c>{ "name": "...", "version": "...", "capabilities": [...], "spotifyLinkServerWide": bool }</c>,
+    /// the last saying whether this user's Spotify links apply to the whole server.
     /// Reaching this at all is the answer: a server without the plugin has no
     /// such route and returns 404.
     /// </response>
     [HttpGet]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public IActionResult GetInfo()
+    public async Task<IActionResult> GetInfo([FromServices] IAuthorizationContext auth)
     {
+        var spicy = !string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey);
         return Ok(new
         {
             name = "Cascade Server",
             version = Plugin.Instance?.Version?.ToString() ?? "0.0.0.0",
-            capabilities = string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey)
-                ? Capabilities
-                : [.. Capabilities, Syllable, SpotifyLink],
+            capabilities = spicy ? [.. Capabilities, Syllable, SpotifyLink] : Capabilities,
+            // For this user: whether their Spotify links apply to the whole server, or
+            // stay on their own computer (see SpotifyLinkPermission).
+            spotifyLinkServerWide = spicy && await SpotifyLinkPermission.ServerWideAsync(auth, HttpContext),
         });
     }
 }

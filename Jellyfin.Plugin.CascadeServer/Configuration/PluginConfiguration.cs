@@ -23,4 +23,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// SpicyLyrics is off.
     /// </summary>
     public string SpicyLyricsSecretKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the users (ids, any Guid format) allowed to link songs to Spotify
+    /// tracks for the whole server. Administrators always may. Everyone else links for
+    /// themselves only: Cascade keeps their links on their own computer.
+    /// </summary>
+    public string[] ServerWideSpotifyLinkUsers { get; set; } = [];
 }

@@ -88,6 +88,11 @@ public class LyricsController : ControllerBase
     /// its own waterfall (Cascade outside server-only mode) discards the plugin's files, so
     /// reading them, or fetching Kugou and LRCLIB live for them, was wasted on every miss.
     /// </param>
+    /// <param name="spotifyId">
+    /// With <c>syllable=true</c>: a Spotify track id the user linked for themselves (kept by
+    /// Cascade on their computer, for users not allowed to link songs server-wide). Used for
+    /// this request only, ahead of the server's own lookup, and never stored.
+    /// </param>
     /// <response code="200">
     /// Returns <c>{ "lrc": "...", "type": "karaoke"|"synced" }</c>, or with
     /// <c>syllable=true</c> possibly <c>{ "type": "syllable", "source": "spicylyrics", "spicy": {...} }</c>
@@ -98,7 +103,7 @@ public class LyricsController : ControllerBase
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetLyrics([FromRoute] Guid itemId, [FromQuery] bool syllable = false, [FromQuery] bool spicyOnly = false)
+    public async Task<IActionResult> GetLyrics([FromRoute] Guid itemId, [FromQuery] bool syllable = false, [FromQuery] bool spicyOnly = false, [FromQuery] string? spotifyId = null)
     {
         var item = _libraryManager.GetItemById(itemId);
 
@@ -110,7 +115,7 @@ public class LyricsController : ControllerBase
             {
                 using var cts = new CancellationTokenSource(LiveFetchBudget);
                 using var client = LyricsFetcher.CreateHttpClient(_httpClientFactory);
-                raw = await new LyricsFetcher(_logger, _appPaths).TrySpicyAsync(item, client, cts.Token);
+                raw = await new LyricsFetcher(_logger, _appPaths).TrySpicyAsync(item, client, cts.Token, spotifyId);
             }
             catch (OperationCanceledException)
             {

@@ -26,10 +26,20 @@
                     <div class="inputContainer">
                         <input is="emby-input" type="password" id="csSpicyKey" label="SpicyLyrics secret key" autocomplete="off" />
                         <div class="fieldDescription">
-                            Optional. A key starting with sl_sk_ from developers.spicylyrics.org. SpicyLyrics results are
-                            cached for at most 25 days and never written as files. Not used yet: tracks still need a
-                            Spotify id, which Cascade Server cannot look up yet.
+                            Optional. A key starting with sl_sk_ from developers.spicylyrics.org. With it, Cascade shows
+                            SpicyLyrics' word-synced lyrics where they exist. Songs are matched to Spotify through
+                            ListenBrainz, and users can link a song by hand in Cascade when that finds nothing.
+                            Results are cached for at most 25 days and never written as files.
                         </div>
+                    </div>
+                    <div class="verticalSection">
+                        <h3>Who can link songs to Spotify for everyone</h3>
+                        <div class="fieldDescription" style="margin-bottom:0.8em;">
+                            A link picks which Spotify track a song's SpicyLyrics come from. Links set by the people
+                            ticked here apply to every user on this server. Everyone else can still link songs, but
+                            only for themselves: Cascade keeps those on their own computer. Administrators always can.
+                        </div>
+                        <div id="csLinkUsers">Loading users…</div>
                     </div>
                     <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
                 </form>
@@ -212,10 +222,30 @@
             // ── Settings ────────────────────────────────────────────────────────
             var PLUGIN_ID = 'a8b9c0d1-e2f3-4a5b-6c7d-8e9f0a1b2c3d';
 
+            function escapeHtml(str) {
+                return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+            // Guids compared without dashes or case, however they were saved.
+            function normId(id) { return String(id || '').replace(/-/g, '').toLowerCase(); }
+
+            function renderLinkUsers(users, allowed) {
+                var set = {};
+                (allowed || []).forEach(function (id) { set[normId(id)] = true; });
+                page.querySelector('#csLinkUsers').innerHTML = users.map(function (u) {
+                    var admin = !!(u.Policy && u.Policy.IsAdministrator);
+                    return '<label style="display:flex;align-items:center;gap:0.5em;margin:0.2em 0;">' +
+                        '<input is="emby-checkbox" type="checkbox" class="csLinkUser" data-id="' + escapeHtml(u.Id) + '"' +
+                        (admin || set[normId(u.Id)] ? ' checked' : '') + (admin ? ' disabled' : '') + ' />' +
+                        '<span>' + escapeHtml(u.Name) + (admin ? ' (administrator)' : '') + '</span></label>';
+                }).join('') || 'No users.';
+            }
+
             function loadSettings() {
-                ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+                Promise.all([ApiClient.getPluginConfiguration(PLUGIN_ID), ApiClient.getUsers()]).then(function (r) {
+                    var config = r[0];
                     page.querySelector('#csDisableSidecarWrites').checked = !!config.DisableSidecarWrites;
                     page.querySelector('#csSpicyKey').value = config.SpicyLyricsSecretKey || '';
+                    renderLinkUsers(r[1] || [], config.ServerWideSpotifyLinkUsers);
                 });
             }
 
@@ -225,6 +255,10 @@
                 ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
                     config.DisableSidecarWrites = page.querySelector('#csDisableSidecarWrites').checked;
                     config.SpicyLyricsSecretKey = page.querySelector('#csSpicyKey').value.trim();
+                    // Administrators are implied, so only the users actually picked are saved.
+                    config.ServerWideSpotifyLinkUsers = Array.prototype.slice.call(page.querySelectorAll('.csLinkUser'))
+                        .filter(function (el) { return el.checked && !el.disabled; })
+                        .map(function (el) { return el.getAttribute('data-id'); });
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
                 }).then(function (result) {
                     Dashboard.processPluginConfigurationUpdateResult(result);

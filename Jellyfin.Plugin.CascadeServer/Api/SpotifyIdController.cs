@@ -3,7 +3,9 @@ using Jellyfin.Plugin.CascadeServer.LyricFetch;
 using Jellyfin.Plugin.CascadeServer.LyricStore;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities.Audio;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -12,9 +14,11 @@ namespace Jellyfin.Plugin.CascadeServer.Api;
 
 /// <summary>
 /// Links a song to a Spotify track by hand, for when the automatic lookup finds nothing or
-/// the wrong release. Server-wide, like saved lyrics: any signed-in user may set it, and it
-/// applies to everyone. A hand link is never overwritten by the lookup; DELETE hands the
-/// song back to it.
+/// the wrong release. Applies to everyone on the server, so setting or removing one is
+/// limited to administrators and the users picked in the plugin settings (see
+/// <see cref="SpotifyLinkPermission"/>); anyone may read one. Everyone else links for
+/// themselves in Cascade, which passes their link with each lyrics request instead. A hand
+/// link is never overwritten by the lookup; DELETE hands the song back to it.
 /// </summary>
 [ApiController]
 [Route("CascadeServer/SpotifyId/{itemId}")]
@@ -23,13 +27,18 @@ public class SpotifyIdController : ControllerBase
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IApplicationPaths _appPaths;
+    private readonly IAuthorizationContext _auth;
 
     /// <summary>Initialises a new instance of <see cref="SpotifyIdController"/>.</summary>
-    public SpotifyIdController(ILibraryManager libraryManager, IApplicationPaths appPaths)
+    public SpotifyIdController(ILibraryManager libraryManager, IApplicationPaths appPaths, IAuthorizationContext auth)
     {
         _libraryManager = libraryManager;
         _appPaths = appPaths;
+        _auth = auth;
     }
+
+    private IActionResult NotAllowed()
+        => StatusCode(StatusCodes.Status403Forbidden, new { error = "Only administrators and users they allow can link songs for the whole server." });
 
     /// <summary>What the song is linked to: <c>{ spotifyId, manual }</c>, id null when nothing.</summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
@@ -50,13 +59,16 @@ public class SpotifyIdController : ControllerBase
     /// <param name="dto">The 22-character Spotify track id (the client parses links).</param>
     /// <response code="204">Linked.</response>
     /// <response code="400">Not a Spotify track id.</response>
+    /// <response code="403">This user may not link songs for the whole server.</response>
     /// <response code="404">No such song.</response>
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public IActionResult Set([FromRoute] Guid itemId, [FromBody] SpotifyIdDto dto)
+    public async Task<IActionResult> Set([FromRoute] Guid itemId, [FromBody] SpotifyIdDto dto)
     {
+        if (!await SpotifyLinkPermission.ServerWideAsync(_auth, HttpContext)) return NotAllowed();
         // Trust boundary: the id becomes a file name in the SpicyLyrics cache, so only the
         // exact Spotify id shape gets through.
         if (!SpicyLyricsClient.IsValidTrackId(dto?.SpotifyId)) return BadRequest(new { error = "Not a Spotify track id." });
@@ -69,10 +81,13 @@ public class SpotifyIdController : ControllerBase
     /// <summary>Removes the link; the automatic lookup runs again next time.</summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
     /// <response code="204">Removed (or there was nothing to remove).</response>
+    /// <response code="403">This user may not change links for the whole server.</response>
     [HttpDelete]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public IActionResult Clear([FromRoute] Guid itemId)
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> Clear([FromRoute] Guid itemId)
     {
+        if (!await SpotifyLinkPermission.ServerWideAsync(_auth, HttpContext)) return NotAllowed();
         SpotifyIdStore.Remove(_appPaths, itemId);
         return NoContent();
     }

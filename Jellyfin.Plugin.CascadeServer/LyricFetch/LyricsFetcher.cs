@@ -167,18 +167,22 @@ public class LyricsFetcher
     /// for 25 days). A song has one id per release, so up to <see cref="MaxSpicyCandidates"/>
     /// are tried and the first whose sync fits this file's length wins; a sync made for a
     /// longer release drifts (a 190.7s sync against a 186.6s file ran 8s late by the end).
-    /// A hand-linked id is taken as it is. <c>null</c> otherwise, including on any miss.
+    /// A hand-linked id is taken as it is, and so is <paramref name="requestedId"/>, a user's
+    /// own link sent with the request (validated, used only for this call, never stored).
+    /// <c>null</c> otherwise, including on any miss.
     /// </summary>
-    public async Task<string?> TrySpicyAsync(BaseItem item, HttpClient client, CancellationToken ct)
+    public async Task<string?> TrySpicyAsync(BaseItem item, HttpClient client, CancellationToken ct, string? requestedId = null)
     {
         if (item is not Audio audio || string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey)) return null;
-        var (ids, manual) = await SpotifyIdLookup.FindAsync(audio, client, _appPaths, ct);
+        var (ids, manual) = SpicyLyricsClient.IsValidTrackId(requestedId)
+            ? ([requestedId!], true)
+            : await SpotifyIdLookup.FindAsync(audio, client, _appPaths, ct);
         foreach (var id in ids.Take(MaxSpicyCandidates))
         {
             var result = await TrySpicyByIdAsync(id, client, respectRecentMiss: true, ct);
             if (result.Status != SpicyLyricsStatus.Hit || result.RawJson is null) continue;
             if (!manual && !SpicyFitsTrack(result.RawJson, audio)) continue;
-            SpotifyIdLookup.Prefer(_appPaths, audio.Id, id);
+            if (id != requestedId) SpotifyIdLookup.Prefer(_appPaths, audio.Id, id);
             return result.RawJson;
         }
 
