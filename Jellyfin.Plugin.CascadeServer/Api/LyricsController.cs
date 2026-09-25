@@ -107,6 +107,10 @@ public class LyricsController : ControllerBase
     {
         var item = _libraryManager.GetItemById(itemId);
 
+        // Songs only. Handed a movie or an episode, everything below would
+        // search the web for lyrics to a film's title.
+        if (item is not null && item is not Audio) return NotFound();
+
         // 0. SpicyLyrics (opt-in, needs a key and a Spotify id; skipped otherwise)
         if (syllable && item is not null && !string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey))
         {
